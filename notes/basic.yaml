@@ -1,0 +1,50 @@
+# Example template file - copy to ~/.azure-boards-cli/templates/ and customize
+name: Example 
+description: Example template
+type: User Story
+fields:
+  # Standard fields
+  System.Title: ab create test
+  System.Description: testing automated tools
+  System.AssignedTo: Casey Kawamura
+  System.Tags: ITS
+  System.State: New
+  System.AreaPath: ITS-Application-Development\Maintenance
+  System.IterationPath: ITS-Application-Development
+
+  # Priority and planning
+  Microsoft.VSTS.Common.Priority: 1
+  Microsoft.VSTS.Common.ValueArea: Business
+  Microsoft.VSTS.Common.Activity: Development
+  Microsoft.VSTS.Scheduling.StoryPoints: 0
+
+  # Acceptance Criteria (use YAML multiline string)
+  Microsoft.VSTS.Common.AcceptanceCriteria: |
+    - [ ] Repositories are available in ITS-Application-Development
+
+  # Custom fields
+  Custom.ApplicationName: DevOps
+  Custom.Change#: CHG
+
+  # Board settings (if applicable)
+  # System.BoardColumn: Assigned Work
+
+# Work item relationships
+relations:
+  # Optional: Link this work item to a parent (use actual parent ID)
+  parentId: 40333
+
+  # Optional: Create child work items automatically
+  children:
+    - title: do work
+      type: Task  # Optional, defaults to Task
+      description: do work
+      assignedTo: Casey Kawamura
+      fields:
+        # Add any additional fields specific to this child
+        Microsoft.VSTS.Scheduling.RemainingWork: 4
+
+# Notes:
+# - Parent ID can be specified in template or overridden with --parent-id flag
+# - Child work items are created automatically when using the template
+# - Children inherit area path and iteration from parent by default

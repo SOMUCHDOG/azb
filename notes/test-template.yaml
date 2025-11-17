@@ -1,0 +1,16 @@
+name: test-template
+description: Test template with children
+type: User Story
+fields:
+  System.Title: Test Parent Story
+  System.Description: Test description
+  Custom.ApplicationName: TestApp
+  Microsoft.VSTS.Common.Priority: 2
+
+relations:
+  children:
+    - title: Test Child Task 1
+      description: First child task
+
+    - title: Test Child Task 2
+      description: Second child task
