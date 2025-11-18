@@ -5,9 +5,11 @@ A cross-platform command-line interface for managing Azure Boards work items.
 ## Features
 
 - 🔐 **Secure Authentication**: PAT (Personal Access Token) support with secure storage
-- 📋 **Work Item Management**: List, view, and create work items
+- 📋 **Work Item Management**: List, view, create, and update work items
 - 🔍 **Powerful Filtering**: Filter by state, assignee, type, sprint, area path, and tags
-- 📝 **Interactive & CLI Modes**: Create work items interactively or via command-line flags
+- 📝 **Interactive & CLI Modes**: Create and update work items interactively or via command-line flags
+- 🏷️ **Tag Management**: Add and remove tags from work items
+- 📦 **Bulk Operations**: Update multiple work items at once
 - 📊 **Multiple Output Formats**: Table, JSON, CSV, and IDs-only formats
 - ⚙️ **Configuration Management**: Easy setup and configuration
 - 🚀 **Fast & Lightweight**: Single binary, no dependencies required
@@ -149,6 +151,59 @@ ab show 1234 --comments
 
 # Show with history (coming soon)
 ab show 1234 --history
+```
+
+### Update Work Item
+
+```bash
+# Update a single field
+ab update 1234 --state Resolved
+ab update 1234 --title "New title"
+ab update 1234 --assigned-to @me
+ab update 1234 --priority 1
+
+# Update multiple fields at once
+ab update 1234 --state Active --assigned-to "Jane Doe" --priority 2
+
+# Update custom fields
+ab update 1234 --field "Custom.ApplicationName=MyApp"
+ab update 1234 --field "Microsoft.VSTS.Scheduling.StoryPoints=5"
+
+# Tag operations
+ab update 1234 --add-tag "urgent,bug"
+ab update 1234 --remove-tag "needs-triage"
+ab update 1234 --add-tag "reviewed" --remove-tag "needs-review"
+
+# Bulk update (update multiple work items)
+ab update 1234,1235,1236 --state Closed
+ab update 1234,1235,1236 --add-tag "sprint-42"
+
+# Interactive mode (prompts for each field)
+ab update 1234 --interactive
+ab update 1234 -i
+```
+
+**Interactive Mode Example:**
+```
+$ ab update 1234 -i
+Interactive update for work item 1234
+Leave blank to keep current value, enter new value to update
+
+Title [Fix login bug]:
+Description [Users unable to login]: Updated description
+State [Active]: Resolved
+Assigned To [Casey Kawamura]:
+Tags [bug,urgent]:
+Priority [1]: 2
+
+Fields to update:
+  System.Description = Updated description
+  System.State = Resolved
+  Microsoft.VSTS.Common.Priority = 2
+
+Update work item? (y/N): y
+
+✓ Updated work item 1234
 ```
 
 ### Create Work Item
@@ -372,7 +427,6 @@ The Personal Access Token is securely stored in `~/.azure-boards-cli/token` with
 
 The following features are planned for future releases:
 
-- ✏️ **Update Work Items**: Modify work item fields
 - 🗑️ **Delete Work Items**: Remove work items
 - 🔍 **Query Support**: Execute saved queries
 - 📱 **TUI Dashboard**: Interactive terminal UI
