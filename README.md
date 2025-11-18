@@ -5,11 +5,11 @@ A cross-platform command-line interface for managing Azure Boards work items.
 ## Features
 
 - 🔐 **Secure Authentication**: PAT (Personal Access Token) support with secure storage
-- 📋 **Work Item Management**: List, view, create, and update work items
+- 📋 **Work Item Management**: List, view, create, update, and delete work items
 - 🔍 **Powerful Filtering**: Filter by state, assignee, type, sprint, area path, and tags
 - 📝 **Interactive & CLI Modes**: Create and update work items interactively or via command-line flags
 - 🏷️ **Tag Management**: Add and remove tags from work items
-- 📦 **Bulk Operations**: Update multiple work items at once
+- 📦 **Bulk Operations**: Update and delete multiple work items at once
 - 📊 **Multiple Output Formats**: Table, JSON, CSV, and IDs-only formats
 - ⚙️ **Configuration Management**: Easy setup and configuration
 - 🚀 **Fast & Lightweight**: Single binary, no dependencies required
@@ -376,6 +376,87 @@ ab create --template my-story-with-tasks
 ab create --template my-template --parent-id 99999
 ```
 
+### Query Commands
+
+```bash
+# List all saved queries
+ab query list
+ab query list --format json
+
+# Show query details (including WIQL)
+ab query show "Assigned to me"
+ab query show "Sprint Backlog" --format json
+
+# Run a saved query
+ab query run "Assigned to me"
+ab query run "My Bugs" --limit 20
+ab query run "Sprint Backlog" --format json
+ab query run "Active Tasks" --format ids
+```
+
+**Query List Example:**
+```
+$ ab query list
+NAME                                                 TYPE    PATH
+Shared Queries                                       Folder  Shared Queries
+  Open Work                                          Query   Shared Queries/Open Work
+  Blocked Work                                       Query   Shared Queries/Blocked Work
+  Active Projects                                    Query   Shared Queries/Active Projects
+My Queries                                           Folder  My Queries
+  Followed work items                                Query   My Queries/Followed work items
+  Assigned to me                                     Query   My Queries/Assigned to me
+```
+
+**Query Show Example:**
+```
+$ ab query show "Assigned to me"
+Name: Assigned to me
+Path: My Queries/Assigned to me
+ID: cddeffc6-ad80-4a71-a6ae-0df0a6be03ec
+Type: Personal
+
+WIQL:
+select [System.Id], [System.WorkItemType], [System.Title], [System.State]
+from WorkItems where [System.AssignedTo] = @me order by [System.ChangedDate] desc
+```
+
+**Query Run Example:**
+```
+$ ab query run "Assigned to me" --limit 5
+ID       Title                                              Type            State           Assigned To
+------------------------------------------------------------------------------------------------------------------------
+73807    Fix login bug                                      Bug             Active          Casey Kawamura
+73504    Add new dashboard feature                          User Story      New             Casey Kawamura
+73667    Update documentation                               Task            Active          Casey Kawamura
+```
+
+### Delete Work Item
+
+```bash
+# Delete a single work item (with confirmation)
+ab delete 1234
+
+# Delete multiple work items
+ab delete 1234,1235,1236
+
+# Delete without confirmation (for scripting)
+ab delete 1234 --force
+ab delete 1234,1235,1236 -f
+```
+
+**Confirmation Prompt:**
+```
+$ ab delete 1234
+The following work items will be deleted:
+  - ID 1234: Fix login bug
+
+Are you sure you want to delete these work items? This cannot be undone. (y/N): y
+
+✓ Deleted work item 1234
+
+Summary: 1 deleted, 0 failed
+```
+
 ### Inspecting Work Item Types
 
 Use the inspect command to discover required fields for your organization:
@@ -427,12 +508,11 @@ The Personal Access Token is securely stored in `~/.azure-boards-cli/token` with
 
 The following features are planned for future releases:
 
-- 🗑️ **Delete Work Items**: Remove work items
-- 🔍 **Query Support**: Execute saved queries
 - 📱 **TUI Dashboard**: Interactive terminal UI
 - 💾 **Caching**: Offline support with local caching
 - 🎯 **Aliases**: Custom command aliases
 - 📊 **Export/Import**: Bulk operations
+- 🔍 **Advanced Query Features**: Create and manage queries via CLI
 
 ## Development
 
