@@ -8,9 +8,12 @@ import (
 
 // GetQuery retrieves a saved query by path
 func (c *Client) GetQuery(queryPath string) (*workitemtracking.QueryHierarchyItem, error) {
+	expand := workitemtracking.QueryExpandValues.Wiql
+
 	query, err := c.workItemClient.GetQuery(c.ctx, workitemtracking.GetQueryArgs{
 		Project: &c.project,
 		Query:   &queryPath,
+		Expand:  &expand,
 		Depth:   nil,
 	})
 
@@ -39,10 +42,13 @@ func (c *Client) ListQueries(folderPath string, depth int) (*[]workitemtracking.
 
 // ExecuteQuery executes a saved query and returns work items
 func (c *Client) ExecuteQuery(queryId string, top int) (*[]workitemtracking.WorkItem, error) {
-	// Get the query
+	// Get the query with WIQL
+	expand := workitemtracking.QueryExpandValues.Wiql
+
 	query, err := c.workItemClient.GetQuery(c.ctx, workitemtracking.GetQueryArgs{
 		Project: &c.project,
 		Query:   &queryId,
+		Expand:  &expand,
 	})
 
 	if err != nil {
