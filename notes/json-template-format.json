@@ -1,0 +1,41 @@
+{
+  "type": "User Story",
+  "title": "VET Code Repository Migrations",
+  "description": "Import and Standardize the project",
+  "assignedTo": "Casey Kawamura",
+  "tags": "ITS",
+  "state": "New",
+  "column": "Assigned Work",
+  "priority": 1,
+  "areaPath": "ITS-Application-Development\\Process Improvement",
+  "iterationPath": "ITS-Application-Development",
+  "acceptanceCriteria": [
+    "Repositories are available in ITS-Application-Development"
+  ],
+  "customFields": {
+    "Custom.ApplicationName": "DevOps",
+    "Custom.Change#": "CHG",
+    "Microsoft.VSTS.Common.Activity": "Development",
+    "Microsoft.VSTS.Scheduling.StoryPoints": 0
+  },
+  "relations": {
+    "parentId": 40333,
+    "children": [
+        {
+            "title": "Check for archived projects",
+            "description": "Work with the Agency SMEs to correctly archive decommissioned applications",
+            "assignedTo": "Casey Kawamura"
+        },
+        {
+            "title": "Run the migration script",
+            "description": "Run the migration script to move the repositories",
+            "assignedTo": "Casey Kawamura"
+        },
+        {
+            "title": "Validate with project SMEs",
+            "description": "Validate the projects were imported correctly",
+            "assignedTo": "Casey Kawamura"
+        }
+    ]
+  }
+}

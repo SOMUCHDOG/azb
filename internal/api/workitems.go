@@ -78,7 +78,7 @@ func (c *Client) ListWorkItems(wiql string, top int) (*[]workitemtracking.WorkIt
 }
 
 // CreateWorkItem creates a new work item
-func (c *Client) CreateWorkItem(workItemType string, fields map[string]interface{}) (*workitemtracking.WorkItem, error) {
+func (c *Client) CreateWorkItem(workItemType string, fields map[string]interface{}, parentID int) (*workitemtracking.WorkItem, error) {
 	// Build JSON patch document
 	var patchDocument []webapi.JsonPatchOperation
 
@@ -89,6 +89,21 @@ func (c *Client) CreateWorkItem(workItemType string, fields map[string]interface
 			Op:    &op,
 			Path:  &path,
 			Value: value,
+		})
+	}
+
+	// Add parent relationship if specified
+	if parentID > 0 {
+		parentURL := fmt.Sprintf("%s/_apis/wit/workItems/%d", c.organizationURL, parentID)
+		op := webapi.OperationValues.Add
+		path := "/relations/-"
+		patchDocument = append(patchDocument, webapi.JsonPatchOperation{
+			Op:   &op,
+			Path: &path,
+			Value: map[string]interface{}{
+				"rel": "System.LinkTypes.Hierarchy-Reverse",
+				"url": parentURL,
+			},
 		})
 	}
 

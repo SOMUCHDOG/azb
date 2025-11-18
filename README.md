@@ -5,8 +5,9 @@ A cross-platform command-line interface for managing Azure Boards work items.
 ## Features
 
 - 🔐 **Secure Authentication**: PAT (Personal Access Token) support with secure storage
-- 📋 **Work Item Management**: List, view, create, update, and delete work items
+- 📋 **Work Item Management**: List, view, and create work items
 - 🔍 **Powerful Filtering**: Filter by state, assignee, type, sprint, area path, and tags
+- 📝 **Interactive & CLI Modes**: Create work items interactively or via command-line flags
 - 📊 **Multiple Output Formats**: Table, JSON, CSV, and IDs-only formats
 - ⚙️ **Configuration Management**: Easy setup and configuration
 - 🚀 **Fast & Lightweight**: Single binary, no dependencies required
@@ -150,6 +151,190 @@ ab show 1234 --comments
 ab show 1234 --history
 ```
 
+### Create Work Item
+
+```bash
+# Interactive mode (will prompt for all fields)
+ab create
+
+# Command line mode with required fields
+ab create --type Bug --title "Fix login issue"
+
+# With all fields specified
+ab create \
+  --type "User Story" \
+  --title "Implement dashboard" \
+  --description "Create a new dashboard for analytics" \
+  --assigned-to @me \
+  --area-path "myproject\\Team A" \
+  --iteration "Sprint 42" \
+  --priority 2 \
+  --tags "frontend,dashboard"
+
+# Quick bug creation
+ab create --type Bug --title "Button not working" --assigned-to @me --priority 1
+
+# Create task
+ab create --type Task --title "Update documentation" --tags "docs"
+```
+
+**Interactive Mode:**
+When you run `ab create` without flags, you'll be prompted for each field:
+- Work item type (Bug, Task, User Story, Feature, Epic)
+- Title (required)
+- Description (optional)
+- Assigned To (optional, use @me for yourself)
+- Area Path (optional, uses config default)
+- Iteration (optional, uses config default)
+- Priority (optional, 1-4, default is 2)
+- Tags (optional, comma-separated)
+- Custom required fields (dynamically discovered)
+
+### Templates
+
+Templates allow you to save commonly used work item configurations for reuse.
+
+**Creating a Template:**
+
+There are two ways to create templates:
+
+*Option 1: Initialize from example (recommended)*
+```bash
+# Create a template file with example fields
+ab template init my-story "User Story"
+
+# Edit the template file with your defaults
+ab template edit my-story
+
+# Or manually edit the file
+# Templates are in: ~/.azure-boards-cli/templates/
+```
+
+*Option 2: Save from command-line flags*
+```bash
+# Save a template for bug reports
+ab template save bug-report \
+  --type Bug \
+  --description "Template for bug reports" \
+  --assigned-to @me \
+  --priority 1 \
+  --tags "bug,needs-triage" \
+  --field "Custom.ApplicationName=MyApp"
+
+# Save a template for user stories
+ab template save user-story \
+  --type "User Story" \
+  --description "Template for user stories" \
+  --area-path "myproject\\Team A" \
+  --iteration "Sprint 42" \
+  --field "Microsoft.VSTS.Common.ValueArea=Business" \
+  --field "Custom.ApplicationName=MyApp"
+```
+
+**Using a Template:**
+```bash
+# Create a work item from a template
+ab create --template bug-report --title "Button not working"
+
+# Create from template (interactive mode will use template defaults)
+ab create -t user-story
+```
+
+**Managing Templates:**
+```bash
+# List all templates
+ab template list
+
+# Show template details
+ab template show bug-report
+
+# Show template in JSON format
+ab template show bug-report --format json
+
+# Edit a template in your editor ($EDITOR or $VISUAL)
+ab template edit bug-report
+
+# Show where templates are stored
+ab template path
+
+# Show path to a specific template
+ab template path bug-report
+
+# Delete a template
+ab template delete bug-report
+```
+
+**Template Storage:**
+Templates are stored as YAML files in `~/.azure-boards-cli/templates/`
+
+You can also manually create or edit template files. See `notes/example-template.yaml` for a full example with all available fields.
+
+**Example Template Structure:**
+```yaml
+name: my-template
+description: Template description
+type: User Story
+fields:
+  System.Title: Default Title
+  System.Description: Default description
+  System.AssignedTo: "@me"
+  System.Tags: tag1,tag2
+  System.AreaPath: myproject\\Team A
+  System.IterationPath: myproject\\Sprint 1
+  Microsoft.VSTS.Common.Priority: 2
+  Microsoft.VSTS.Common.ValueArea: Business
+  Microsoft.VSTS.Scheduling.StoryPoints: 0
+  Microsoft.VSTS.Common.AcceptanceCriteria: |
+    - [ ] Criteria 1
+    - [ ] Criteria 2
+  Custom.ApplicationName: MyApp
+
+# Optional: Work item relationships
+relations:
+  # Link to an existing parent work item
+  parentId: 12345
+
+  # Automatically create child work items
+  children:
+    - title: Child Task 1
+      type: Task
+      description: Description for child task
+      assignedTo: "@me"
+      fields:
+        Microsoft.VSTS.Scheduling.RemainingWork: 4
+
+    - title: Child Task 2
+      description: Another child task
+      assignedTo: Casey Kawamura
+```
+
+**Creating Work Items with Relationships:**
+```bash
+# Create a child work item linked to a parent
+ab create --type Task --title "Fix bug" --parent-id 12345
+
+# Create from template with parent and children
+# (creates parent + all children in one command)
+ab create --template my-story-with-tasks
+
+# Override parent ID from template
+ab create --template my-template --parent-id 99999
+```
+
+### Inspecting Work Item Types
+
+Use the inspect command to discover required fields for your organization:
+
+```bash
+# Inspect a work item type to see all fields
+ab inspect "User Story"
+
+# See what fields are required for bugs
+ab inspect Bug
+```
+
+This helps you understand what custom fields your organization requires, which you can then include in templates.
+
 ## Global Flags
 
 All commands support these global flags:
@@ -187,13 +372,11 @@ The Personal Access Token is securely stored in `~/.azure-boards-cli/token` with
 
 The following features are planned for future releases:
 
-- 📝 **Create Work Items**: Interactive and command-line creation
 - ✏️ **Update Work Items**: Modify work item fields
 - 🗑️ **Delete Work Items**: Remove work items
 - 🔍 **Query Support**: Execute saved queries
 - 📱 **TUI Dashboard**: Interactive terminal UI
 - 💾 **Caching**: Offline support with local caching
-- 📋 **Templates**: Work item templates
 - 🎯 **Aliases**: Custom command aliases
 - 📊 **Export/Import**: Bulk operations
 
