@@ -151,9 +151,10 @@ type Model struct {
 	tabs       []string // Tab names
 
 	// Queries tab
-	queries        []workitemtracking.QueryHierarchyItem
-	queryList      list.Model
-	loadingQueries bool
+	queries         []workitemtracking.QueryHierarchyItem
+	queryList       list.Model
+	loadingQueries  bool
+	expandedFolders map[string]bool // Track which folders are expanded by their path
 }
 
 // relationshipInfo stores formatted relationship data for a work item
@@ -166,7 +167,9 @@ type relationshipInfo struct {
 }
 
 // queryDelegate implements list.ItemDelegate for query items
-type queryDelegate struct{}
+type queryDelegate struct {
+	expandedFolders map[string]bool
+}
 
 func (d queryDelegate) Height() int                             { return 1 }
 func (d queryDelegate) Spacing() int                            { return 0 }
@@ -189,10 +192,16 @@ func (d queryDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 	nameStyle := normalStyle
 
 	if queryItem.IsFolder {
-		icon = "📁 "
+		// Check if folder is expanded
+		expanded := d.expandedFolders[queryItem.Path]
+		if expanded {
+			icon = "▼ "
+		} else {
+			icon = "▶ "
+		}
 		nameStyle = folderStyle
 	} else {
-		icon = "🔍 "
+		icon = "  🔍 "
 		nameStyle = queryStyle
 	}
 
@@ -308,10 +317,11 @@ func NewModel(client *api.Client) Model {
 		Foreground(lipgloss.Color("230")).
 		Padding(0, 1)
 
-	// Create queries list
+	// Create queries list with delegate that tracks expanded folders
+	expandedFolders := make(map[string]bool)
 	queryItems := []list.Item{}
-	queryDelegate := queryDelegate{}
-	ql := list.New(queryItems, queryDelegate, 0, 0)
+	queryDel := queryDelegate{expandedFolders: expandedFolders}
+	ql := list.New(queryItems, queryDel, 0, 0)
 	ql.Title = "Saved Queries"
 	ql.SetShowStatusBar(true)
 	ql.SetFilteringEnabled(true)
@@ -340,9 +350,10 @@ func NewModel(client *api.Client) Model {
 		tabs:       []string{"Queries", "Work Items", "Pipelines", "Agents"},
 
 		// Initialize queries
-		queries:        []workitemtracking.QueryHierarchyItem{},
-		queryList:      ql,
-		loadingQueries: true,
+		queries:         []workitemtracking.QueryHierarchyItem{},
+		queryList:       ql,
+		loadingQueries:  true,
+		expandedFolders: make(map[string]bool),
 	}
 }
 
@@ -418,11 +429,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle enter to show/hide details or execute query
 		if key.Matches(msg, m.keys.Enter) {
 			if m.currentTab == 0 {
-				// Execute selected query
+				// Toggle folder or execute query
 				selectedItem := m.queryList.SelectedItem()
 				if item, ok := selectedItem.(queryListItem); ok {
-					// Only execute if it's a query (not a folder)
-					if !item.IsFolder {
+					if item.IsFolder {
+						// Toggle folder expand/collapse
+						m.expandedFolders[item.Path] = !m.expandedFolders[item.Path]
+						logger.Printf("Toggling folder '%s' to expanded=%v", item.Name, m.expandedFolders[item.Path])
+
+						// Rebuild the query list with new expanded state and delegate
+						items := m.flattenQueries(m.queries, 0)
+						queryDel := queryDelegate{expandedFolders: m.expandedFolders}
+						m.queryList = list.New(items, queryDel, m.width, m.height-6)
+						m.queryList.Title = "Saved Queries"
+						m.queryList.SetShowStatusBar(true)
+						m.queryList.SetFilteringEnabled(true)
+						m.queryList.Styles.Title = lipgloss.NewStyle().
+							Background(lipgloss.Color("62")).
+							Foreground(lipgloss.Color("230")).
+							Padding(0, 1)
+					} else {
+						// Execute query
 						logger.Printf("Executing query: %s", item.Name)
 						m.loading = true
 						m.currentTab = 1 // Switch to Work Items tab to show results
@@ -563,7 +590,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// flattenQueries recursively flattens the query hierarchy into a list
+// flattenQueries recursively flattens the query hierarchy into a list, respecting expanded state
 func (m Model) flattenQueries(queries []workitemtracking.QueryHierarchyItem, depth int) []list.Item {
 	var items []list.Item
 
@@ -580,6 +607,7 @@ func (m Model) flattenQueries(queries []workitemtracking.QueryHierarchyItem, dep
 
 		isFolder := q.IsFolder != nil && *q.IsFolder
 
+		// Always add the current item (folder or query)
 		items = append(items, queryListItem{
 			Name:     name,
 			Path:     path,
@@ -588,10 +616,13 @@ func (m Model) flattenQueries(queries []workitemtracking.QueryHierarchyItem, dep
 			query:    q,
 		})
 
-		// Recursively add children
-		if q.Children != nil && len(*q.Children) > 0 {
-			childItems := m.flattenQueries(*q.Children, depth+1)
-			items = append(items, childItems...)
+		// Only add children if this is a folder AND it's expanded
+		if isFolder && q.Children != nil && len(*q.Children) > 0 {
+			// Check if folder is expanded
+			if m.expandedFolders[path] {
+				childItems := m.flattenQueries(*q.Children, depth+1)
+				items = append(items, childItems...)
+			}
 		}
 	}
 
