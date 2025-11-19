@@ -108,6 +108,10 @@ type Model struct {
 	showDetails  bool
 	loading      bool
 	err          error
+
+	// Tab navigation
+	currentTab int      // 0=queries, 1=workitems, 2=pipelines, 3=agents
+	tabs       []string // Tab names
 }
 
 // workItemDelegate implements list.ItemDelegate
@@ -207,6 +211,10 @@ func NewModel(client *api.Client) Model {
 		keys:        keys,
 		showDetails: false,
 		loading:     true,
+
+		// Initialize tabs
+		currentTab: 1, // Start on "Work Items" tab (index 1)
+		tabs:       []string{"Queries", "Work Items", "Pipelines", "Agents"},
 	}
 }
 
@@ -253,6 +261,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle quit
 		if key.Matches(msg, m.keys.Quit) {
 			return m, tea.Quit
+		}
+
+		// Handle tab navigation
+		if msg.String() == "tab" {
+			m.currentTab = (m.currentTab + 1) % len(m.tabs)
+			return m, nil
+		}
+		if msg.String() == "shift+tab" {
+			m.currentTab = (m.currentTab - 1 + len(m.tabs)) % len(m.tabs)
+			return m, nil
 		}
 
 		// Handle refresh
@@ -359,27 +377,58 @@ func (m Model) View() string {
 			Render(fmt.Sprintf("Error: %v\n\nPress q to quit, r to retry", m.err))
 	}
 
-	if m.showDetails {
+	// Render based on current tab
+	switch m.currentTab {
+	case 0: // Queries tab
 		return lipgloss.JoinVertical(
 			lipgloss.Left,
 			m.renderHeader(),
+			m.renderTabBar(),
+			"Queries tab - Coming soon!",
+			m.renderFooter(),
+		)
+	case 1: // Work Items tab
+		if m.showDetails {
+			return lipgloss.JoinVertical(
+				lipgloss.Left,
+				m.renderHeader(),
+				m.renderTabBar(),
+				m.list.View(),
+				m.renderDetailsHeader(),
+				lipgloss.NewStyle().
+					Border(lipgloss.RoundedBorder()).
+					BorderForeground(lipgloss.Color("62")).
+					Padding(1).
+					Render(m.viewport.View()),
+				m.renderFooter(),
+			)
+		}
+		return lipgloss.JoinVertical(
+			lipgloss.Left,
+			m.renderHeader(),
+			m.renderTabBar(),
 			m.list.View(),
-			m.renderDetailsHeader(),
-			lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color("62")).
-				Padding(1).
-				Render(m.viewport.View()),
+			m.renderFooter(),
+		)
+	case 2: // Pipelines tab
+		return lipgloss.JoinVertical(
+			lipgloss.Left,
+			m.renderHeader(),
+			m.renderTabBar(),
+			"Pipelines tab - Coming soon!",
+			m.renderFooter(),
+		)
+	case 3: // Agents tab
+		return lipgloss.JoinVertical(
+			lipgloss.Left,
+			m.renderHeader(),
+			m.renderTabBar(),
+			"Agents tab - Coming soon!",
 			m.renderFooter(),
 		)
 	}
 
-	return lipgloss.JoinVertical(
-		lipgloss.Left,
-		m.renderHeader(),
-		m.list.View(),
-		m.renderFooter(),
-	)
+	return "Unknown tab"
 }
 
 func (m Model) renderHeader() string {
@@ -393,6 +442,36 @@ func (m Model) renderHeader() string {
 		BorderForeground(lipgloss.Color("62")).
 		Padding(0, 1).
 		Render(title)
+}
+
+func (m Model) renderTabBar() string {
+	var tabs []string
+
+	inactiveTabStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("8")).
+		Padding(0, 2)
+
+	activeTabStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("6")).
+		Bold(true).
+		Underline(true).
+		Padding(0, 2)
+
+	for i, tab := range m.tabs {
+		if i == m.currentTab {
+			tabs = append(tabs, activeTabStyle.Render(tab))
+		} else {
+			tabs = append(tabs, inactiveTabStyle.Render(tab))
+		}
+	}
+
+	tabBar := lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
+
+	help := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("8")).
+		Render("  tab: switch")
+
+	return lipgloss.JoinHorizontal(lipgloss.Top, tabBar, help)
 }
 
 func (m Model) renderDetailsHeader() string {
