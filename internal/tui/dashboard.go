@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 
@@ -97,21 +98,33 @@ func DefaultKeyMap() KeyMap {
 
 // Model is the main TUI model
 type Model struct {
-	client       *api.Client
-	workItems    []workitemtracking.WorkItem
-	list         list.Model
-	viewport     viewport.Model
-	keys         KeyMap
-	width        int
-	height       int
-	selectedItem *workitemtracking.WorkItem
-	showDetails  bool
-	loading      bool
-	err          error
+	client           *api.Client
+	workItems        []workitemtracking.WorkItem
+	workItemCache    map[int]*workitemtracking.WorkItem // Cache for fetched work items
+	relationshipData map[int]*relationshipInfo           // Cache for formatted relationship data
+	list             list.Model
+	viewport         viewport.Model
+	keys             KeyMap
+	width            int
+	height           int
+	selectedItem     *workitemtracking.WorkItem
+	showDetails      bool
+	loading          bool
+	loadingRelations bool
+	err              error
 
 	// Tab navigation
 	currentTab int      // 0=queries, 1=workitems, 2=pipelines, 3=agents
 	tabs       []string // Tab names
+}
+
+// relationshipInfo stores formatted relationship data for a work item
+type relationshipInfo struct {
+	parent      string
+	children    []string
+	prs         []string
+	deployments []string
+	loaded      bool
 }
 
 // workItemDelegate implements list.ItemDelegate
@@ -204,13 +217,16 @@ func NewModel(client *api.Client) Model {
 	vp := viewport.New(0, 0)
 
 	return Model{
-		client:      client,
-		workItems:   []workitemtracking.WorkItem{},
-		list:        l,
-		viewport:    vp,
-		keys:        keys,
-		showDetails: false,
-		loading:     true,
+		client:           client,
+		workItems:        []workitemtracking.WorkItem{},
+		workItemCache:    make(map[int]*workitemtracking.WorkItem),
+		relationshipData: make(map[int]*relationshipInfo),
+		list:             l,
+		viewport:         vp,
+		keys:             keys,
+		showDetails:      false,
+		loading:          true,
+		loadingRelations: false,
 
 		// Initialize tabs
 		currentTab: 1, // Start on "Work Items" tab (index 1)
@@ -275,7 +291,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Handle refresh
 		if key.Matches(msg, m.keys.Refresh) {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Refresh triggered - clearing cache\n")
 			m.loading = true
+			// Clear caches
+			m.workItemCache = make(map[int]*workitemtracking.WorkItem)
+			m.relationshipData = make(map[int]*relationshipInfo)
 			return m, fetchWorkItems(m.client)
 		}
 
@@ -301,6 +321,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Set content
 					m.viewport.SetContent(m.formatWorkItemDetails(item.workItem))
 					m.viewport.GotoTop()
+
+					// Load relationships if not already loaded
+					workItemID := 0
+					if item.workItem.Id != nil {
+						workItemID = *item.workItem.Id
+					}
+					if _, exists := m.relationshipData[workItemID]; !exists && workItemID > 0 {
+						fmt.Fprintf(os.Stderr, "[DEBUG] Cache MISS for work item #%d - loading...\n", workItemID)
+						m.loadingRelations = true
+						return m, loadRelationships(m.client, item.workItem)
+					} else if exists {
+						fmt.Fprintf(os.Stderr, "[DEBUG] Cache HIT for work item #%d - using cached data\n", workItemID)
+					}
 				}
 			} else {
 				// Resize list for full view
@@ -333,6 +366,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.list.SetItems(items)
 
+	case relationshipsLoadedMsg:
+		m.loadingRelations = false
+		m.relationshipData[msg.workItemID] = msg.relInfo
+
+		// Update viewport if we're viewing this work item
+		if m.showDetails && m.selectedItem != nil && m.selectedItem.Id != nil && *m.selectedItem.Id == msg.workItemID {
+			m.viewport.SetContent(m.formatWorkItemDetails(*m.selectedItem))
+		}
+
 	case errMsg:
 		m.loading = false
 		m.err = msg.err
@@ -350,6 +392,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selectedItem = &item.workItem
 			m.viewport.SetContent(m.formatWorkItemDetails(item.workItem))
 			m.viewport.GotoTop()
+
+			// Load relationships if not already loaded
+			workItemID := 0
+			if item.workItem.Id != nil {
+				workItemID = *item.workItem.Id
+			}
+			if _, exists := m.relationshipData[workItemID]; !exists && workItemID > 0 {
+				fmt.Fprintf(os.Stderr, "[DEBUG] Cache MISS for work item #%d - loading...\n", workItemID)
+				m.loadingRelations = true
+				cmds = append(cmds, loadRelationships(m.client, item.workItem))
+			} else if exists {
+				fmt.Fprintf(os.Stderr, "[DEBUG] Cache HIT for work item #%d - using cached data\n", workItemID)
+			}
 		}
 	}
 
@@ -525,92 +580,42 @@ func (m Model) formatWorkItemDetails(wi workitemtracking.WorkItem) string {
 		details += acceptanceCriteria + "\n\n"
 	}
 
-	// Format relationships (parent, children, PRs, deployments)
-	if wi.Relations != nil && len(*wi.Relations) > 0 {
-		var parent string
-		children := []string{}
-		prs := []string{}
-		deployments := []string{}
-
-		for _, rel := range *wi.Relations {
-			if rel.Rel == nil || rel.Url == nil {
-				continue
-			}
-
-			relType := *rel.Rel
-
-			// Parent work item
-			if relType == "System.LinkTypes.Hierarchy-Reverse" {
-				if parentID := extractWorkItemIDFromURL(*rel.Url); parentID > 0 {
-					parentWI, err := m.client.GetWorkItem(parentID)
-					if err == nil && parentWI.Fields != nil {
-						parentTitle := getStringField(parentWI, "System.Title")
-						parent = fmt.Sprintf("  #%d - %s", parentID, parentTitle)
-					}
-				}
-			}
-
-			// Child work items
-			if relType == "System.LinkTypes.Hierarchy-Forward" {
-				// Extract work item ID from URL and fetch details
-				if childID := extractWorkItemIDFromURL(*rel.Url); childID > 0 {
-					childWI, err := m.client.GetWorkItem(childID)
-					if err == nil && childWI.Fields != nil {
-						childTitle := getStringField(childWI, "System.Title")
-						childState := getStringField(childWI, "System.State")
-						checkbox := "[ ]"
-						if childState == "Closed" || childState == "Resolved" {
-							checkbox = "[x]"
-						}
-						children = append(children, fmt.Sprintf("  %s #%d - %s", checkbox, childID, childTitle))
-					}
-				}
-			}
-
-			// Pull Requests
-			if relType == "ArtifactLink" && rel.Attributes != nil {
-				if name, ok := (*rel.Attributes)["name"].(string); ok && name == "Pull Request" {
-					prs = append(prs, fmt.Sprintf("  - %s", *rel.Url))
-				}
-			}
-
-			// Deployments
-			if relType == "Hyperlink" && rel.Attributes != nil {
-				if comment, ok := (*rel.Attributes)["comment"].(string); ok {
-					if strings.Contains(strings.ToLower(comment), "deployment") {
-						deployments = append(deployments, fmt.Sprintf("  - %s", comment))
-					}
-				}
-			}
-		}
-
-		if parent != "" {
+	// Format relationships from cache (parent, children, PRs, deployments)
+	workItemID := id
+	if relInfo, exists := m.relationshipData[workItemID]; exists && relInfo.loaded {
+		// Use cached relationship data
+		if relInfo.parent != "" {
 			details += "Parent:\n"
-			details += parent + "\n\n"
+			details += relInfo.parent + "\n\n"
 		}
 
-		if len(children) > 0 {
+		if len(relInfo.children) > 0 {
 			details += "Children:\n"
-			for _, child := range children {
+			for _, child := range relInfo.children {
 				details += child + "\n"
 			}
 			details += "\n"
 		}
 
-		if len(prs) > 0 {
+		if len(relInfo.prs) > 0 {
 			details += "Pull Requests:\n"
-			for _, pr := range prs {
+			for _, pr := range relInfo.prs {
 				details += pr + "\n"
 			}
 			details += "\n"
 		}
 
-		if len(deployments) > 0 {
+		if len(relInfo.deployments) > 0 {
 			details += "Deployments:\n"
-			for _, deployment := range deployments {
+			for _, deployment := range relInfo.deployments {
 				details += deployment + "\n"
 			}
 			details += "\n"
+		}
+	} else if wi.Relations != nil && len(*wi.Relations) > 0 {
+		// Show loading indicator if there are relations but not loaded yet
+		if m.loadingRelations {
+			details += lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render("Loading relationships...\n\n")
 		}
 	}
 
@@ -693,11 +698,93 @@ type workItemsMsg struct {
 	items []workitemtracking.WorkItem
 }
 
+type relationshipsLoadedMsg struct {
+	workItemID int
+	relInfo    *relationshipInfo
+}
+
 type errMsg struct {
 	err error
 }
 
 // Commands
+
+func loadRelationships(client *api.Client, wi workitemtracking.WorkItem) tea.Cmd {
+	return func() tea.Msg {
+		workItemID := 0
+		if wi.Id != nil {
+			workItemID = *wi.Id
+		}
+
+		// DEBUG: Print to stderr so it doesn't interfere with TUI
+		fmt.Fprintf(os.Stderr, "[DEBUG] Loading relationships for work item #%d\n", workItemID)
+
+		relInfo := &relationshipInfo{
+			loaded: false,
+		}
+
+		// Process relationships
+		if wi.Relations != nil && len(*wi.Relations) > 0 {
+			for _, rel := range *wi.Relations {
+				if rel.Rel == nil || rel.Url == nil {
+					continue
+				}
+
+				relType := *rel.Rel
+
+				// Parent work item
+				if relType == "System.LinkTypes.Hierarchy-Reverse" {
+					if parentID := extractWorkItemIDFromURL(*rel.Url); parentID > 0 {
+						parentWI, err := client.GetWorkItem(parentID)
+						if err == nil && parentWI.Fields != nil {
+							parentTitle := getStringField(parentWI, "System.Title")
+							relInfo.parent = fmt.Sprintf("  #%d - %s", parentID, parentTitle)
+						}
+					}
+				}
+
+				// Child work items
+				if relType == "System.LinkTypes.Hierarchy-Forward" {
+					if childID := extractWorkItemIDFromURL(*rel.Url); childID > 0 {
+						childWI, err := client.GetWorkItem(childID)
+						if err == nil && childWI.Fields != nil {
+							childTitle := getStringField(childWI, "System.Title")
+							childState := getStringField(childWI, "System.State")
+							checkbox := "[ ]"
+							if childState == "Closed" || childState == "Resolved" {
+								checkbox = "[x]"
+							}
+							relInfo.children = append(relInfo.children, fmt.Sprintf("  %s #%d - %s", checkbox, childID, childTitle))
+						}
+					}
+				}
+
+				// Pull Requests
+				if relType == "ArtifactLink" && rel.Attributes != nil {
+					if name, ok := (*rel.Attributes)["name"].(string); ok && name == "Pull Request" {
+						relInfo.prs = append(relInfo.prs, fmt.Sprintf("  - %s", *rel.Url))
+					}
+				}
+
+				// Deployments
+				if relType == "Hyperlink" && rel.Attributes != nil {
+					if comment, ok := (*rel.Attributes)["comment"].(string); ok {
+						if strings.Contains(strings.ToLower(comment), "deployment") {
+							relInfo.deployments = append(relInfo.deployments, fmt.Sprintf("  - %s", comment))
+						}
+					}
+				}
+			}
+		}
+
+		relInfo.loaded = true
+
+		return relationshipsLoadedMsg{
+			workItemID: workItemID,
+			relInfo:    relInfo,
+		}
+	}
+}
 
 func fetchWorkItems(client *api.Client) tea.Cmd {
 	return func() tea.Msg {
