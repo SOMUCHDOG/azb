@@ -3,7 +3,9 @@ package tui
 import (
 	"fmt"
 	"io"
+	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -15,6 +17,37 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/workitemtracking"
 )
+
+var (
+	logger  *log.Logger
+	logFile *os.File
+)
+
+func init() {
+	// Set up logging to file
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		// If we can't get home dir, disable logging
+		logger = log.New(io.Discard, "", 0)
+		return
+	}
+
+	logDir := filepath.Join(homeDir, ".azure-boards-cli")
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		// If we can't create directory, disable logging
+		logger = log.New(io.Discard, "", 0)
+		return
+	}
+
+	logFile, err = os.OpenFile(filepath.Join(logDir, "tui.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		// If we can't open log file, disable logging
+		logger = log.New(io.Discard, "", 0)
+		return
+	}
+
+	logger = log.New(logFile, "[TUI] ", log.LstdFlags)
+}
 
 // KeyMap defines keyboard shortcuts
 type KeyMap struct {
@@ -112,6 +145,16 @@ type Model struct {
 	loading          bool
 	loadingRelations bool
 	err              error
+
+	// Tab navigation
+	currentTab int      // 0=queries, 1=workitems, 2=pipelines, 3=agents
+	tabs       []string // Tab names
+
+	// Queries tab
+	queries         []workitemtracking.QueryHierarchyItem
+	queryList       list.Model
+	loadingQueries  bool
+	expandedFolders map[string]bool // Track which folders are expanded by their path
 }
 
 // relationshipInfo stores formatted relationship data for a work item
@@ -121,6 +164,60 @@ type relationshipInfo struct {
 	prs         []string
 	deployments []string
 	loaded      bool
+}
+
+// queryDelegate implements list.ItemDelegate for query items
+type queryDelegate struct {
+	expandedFolders map[string]bool
+}
+
+func (d queryDelegate) Height() int                             { return 1 }
+func (d queryDelegate) Spacing() int                            { return 0 }
+func (d queryDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
+func (d queryDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
+	queryItem, ok := item.(queryListItem)
+	if !ok {
+		return
+	}
+
+	var (
+		normalStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
+		selectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
+		folderStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
+		queryStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
+	)
+
+	indent := strings.Repeat("  ", queryItem.Depth)
+	icon := ""
+	nameStyle := normalStyle
+
+	if queryItem.IsFolder {
+		// Check if folder is expanded
+		expanded := d.expandedFolders[queryItem.Path]
+		if expanded {
+			icon = "▼ "
+		} else {
+			icon = "▶ "
+		}
+		nameStyle = folderStyle
+	} else {
+		icon = "  🔍 "
+		nameStyle = queryStyle
+	}
+
+	name := queryItem.Name
+	if len(name) > 60 {
+		name = name[:57] + "..."
+	}
+
+	var output string
+	if index == m.Index() {
+		output = selectedStyle.Render(fmt.Sprintf("> %s%s%s", indent, icon, name))
+	} else {
+		output = nameStyle.Render(fmt.Sprintf("  %s%s%s", indent, icon, name))
+	}
+
+	fmt.Fprint(w, output)
 }
 
 // workItemDelegate implements list.ItemDelegate
@@ -182,6 +279,17 @@ func (d workItemDelegate) Render(w io.Writer, m list.Model, index int, item list
 	fmt.Fprint(w, output)
 }
 
+// queryListItem wraps a query for the list
+type queryListItem struct {
+	Name     string
+	Path     string
+	IsFolder bool
+	Depth    int
+	query    workitemtracking.QueryHierarchyItem
+}
+
+func (i queryListItem) FilterValue() string { return i.Name }
+
 // workItemItem wraps a work item for the list
 type workItemItem struct {
 	ID         int
@@ -197,7 +305,7 @@ func (i workItemItem) FilterValue() string { return i.Title }
 func NewModel(client *api.Client) Model {
 	keys := DefaultKeyMap()
 
-	// Create list
+	// Create work items list
 	items := []list.Item{}
 	delegate := workItemDelegate{}
 	l := list.New(items, delegate, 0, 0)
@@ -205,6 +313,19 @@ func NewModel(client *api.Client) Model {
 	l.SetShowStatusBar(true)
 	l.SetFilteringEnabled(true)
 	l.Styles.Title = lipgloss.NewStyle().
+		Background(lipgloss.Color("62")).
+		Foreground(lipgloss.Color("230")).
+		Padding(0, 1)
+
+	// Create queries list with delegate that tracks expanded folders
+	expandedFolders := make(map[string]bool)
+	queryItems := []list.Item{}
+	queryDel := queryDelegate{expandedFolders: expandedFolders}
+	ql := list.New(queryItems, queryDel, 0, 0)
+	ql.Title = "Saved Queries"
+	ql.SetShowStatusBar(true)
+	ql.SetFilteringEnabled(true)
+	ql.Styles.Title = lipgloss.NewStyle().
 		Background(lipgloss.Color("62")).
 		Foreground(lipgloss.Color("230")).
 		Padding(0, 1)
@@ -223,6 +344,16 @@ func NewModel(client *api.Client) Model {
 		showDetails:      false,
 		loading:          true,
 		loadingRelations: false,
+
+		// Initialize tabs
+		currentTab: 1, // Start on "Work Items" tab (index 1)
+		tabs:       []string{"Queries", "Work Items", "Pipelines", "Agents"},
+
+		// Initialize queries
+		queries:         []workitemtracking.QueryHierarchyItem{},
+		queryList:       ql,
+		loadingQueries:  true,
+		expandedFolders: make(map[string]bool),
 	}
 }
 
@@ -230,6 +361,7 @@ func NewModel(client *api.Client) Model {
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		fetchWorkItems(m.client),
+		fetchQueries(m.client),
 		tea.EnterAltScreen,
 	)
 }
@@ -247,6 +379,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		headerHeight := 3
 		footerHeight := 3
 		verticalMargins := headerHeight + footerHeight
+
+		// Update query list size
+		m.queryList.SetSize(m.width, m.height-verticalMargins)
 
 		if m.showDetails {
 			// Split view: list on top, details on bottom
@@ -271,9 +406,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
+		// Handle tab navigation
+		if msg.String() == "tab" {
+			m.currentTab = (m.currentTab + 1) % len(m.tabs)
+			return m, nil
+		}
+		if msg.String() == "shift+tab" {
+			m.currentTab = (m.currentTab - 1 + len(m.tabs)) % len(m.tabs)
+			return m, nil
+		}
+
 		// Handle refresh
 		if key.Matches(msg, m.keys.Refresh) {
-			fmt.Fprintf(os.Stderr, "[DEBUG] Refresh triggered - clearing cache\n")
+			logger.Println("Refresh triggered - clearing cache")
 			m.loading = true
 			// Clear caches
 			m.workItemCache = make(map[int]*workitemtracking.WorkItem)
@@ -281,50 +426,82 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, fetchWorkItems(m.client)
 		}
 
-		// Handle enter to show/hide details
+		// Handle enter to show/hide details or execute query
 		if key.Matches(msg, m.keys.Enter) {
-			m.showDetails = !m.showDetails
-			if m.showDetails && len(m.list.Items()) > 0 {
-				// Get selected work item
-				selectedItem := m.list.SelectedItem()
-				if item, ok := selectedItem.(workItemItem); ok {
-					m.selectedItem = &item.workItem
+			if m.currentTab == 0 {
+				// Toggle folder or execute query
+				selectedItem := m.queryList.SelectedItem()
+				if item, ok := selectedItem.(queryListItem); ok {
+					if item.IsFolder {
+						// Toggle folder expand/collapse
+						m.expandedFolders[item.Path] = !m.expandedFolders[item.Path]
+						logger.Printf("Toggling folder '%s' to expanded=%v", item.Name, m.expandedFolders[item.Path])
 
-					// Resize viewport for details view
+						// Rebuild the query list with new expanded state and delegate
+						items := m.flattenQueries(m.queries, 0)
+						queryDel := queryDelegate{expandedFolders: m.expandedFolders}
+						m.queryList = list.New(items, queryDel, m.width, m.height-6)
+						m.queryList.Title = "Saved Queries"
+						m.queryList.SetShowStatusBar(true)
+						m.queryList.SetFilteringEnabled(true)
+						m.queryList.Styles.Title = lipgloss.NewStyle().
+							Background(lipgloss.Color("62")).
+							Foreground(lipgloss.Color("230")).
+							Padding(0, 1)
+					} else {
+						// Execute query
+						logger.Printf("Executing query: %s", item.Name)
+						m.loading = true
+						m.currentTab = 1 // Switch to Work Items tab to show results
+						return m, executeQuery(m.client, item.query)
+					}
+				}
+				return m, nil
+			} else if m.currentTab == 1 {
+				// Work Items tab - toggle details
+				m.showDetails = !m.showDetails
+				if m.showDetails && len(m.list.Items()) > 0 {
+					// Get selected work item
+					selectedItem := m.list.SelectedItem()
+					if item, ok := selectedItem.(workItemItem); ok {
+						m.selectedItem = &item.workItem
+
+						// Resize viewport for details view
+						headerHeight := 3
+						footerHeight := 3
+						verticalMargins := headerHeight + footerHeight
+						listHeight := (m.height - verticalMargins) / 2
+						detailsHeight := (m.height - verticalMargins) - listHeight
+						m.list.SetSize(m.width, listHeight)
+						m.viewport.Width = m.width - 4
+						m.viewport.Height = detailsHeight - 4
+
+						// Set content
+						m.viewport.SetContent(m.formatWorkItemDetails(item.workItem))
+						m.viewport.GotoTop()
+
+						// Load relationships if not already loaded
+						workItemID := 0
+						if item.workItem.Id != nil {
+							workItemID = *item.workItem.Id
+						}
+						if _, exists := m.relationshipData[workItemID]; !exists && workItemID > 0 {
+							logger.Printf("Cache MISS for work item #%d - loading...", workItemID)
+							m.loadingRelations = true
+							return m, loadRelationships(m.client, item.workItem)
+						} else if exists {
+							logger.Printf("Cache HIT for work item #%d - using cached data", workItemID)
+						}
+					}
+				} else {
+					// Resize list for full view
 					headerHeight := 3
 					footerHeight := 3
 					verticalMargins := headerHeight + footerHeight
-					listHeight := (m.height - verticalMargins) / 2
-					detailsHeight := (m.height - verticalMargins) - listHeight
-					m.list.SetSize(m.width, listHeight)
-					m.viewport.Width = m.width - 4
-					m.viewport.Height = detailsHeight - 4
-
-					// Set content
-					m.viewport.SetContent(m.formatWorkItemDetails(item.workItem))
-					m.viewport.GotoTop()
-
-					// Load relationships if not already loaded
-					workItemID := 0
-					if item.workItem.Id != nil {
-						workItemID = *item.workItem.Id
-					}
-					if _, exists := m.relationshipData[workItemID]; !exists && workItemID > 0 {
-						fmt.Fprintf(os.Stderr, "[DEBUG] Cache MISS for work item #%d - loading...\n", workItemID)
-						m.loadingRelations = true
-						return m, loadRelationships(m.client, item.workItem)
-					} else if exists {
-						fmt.Fprintf(os.Stderr, "[DEBUG] Cache HIT for work item #%d - using cached data\n", workItemID)
-					}
+					m.list.SetSize(m.width, m.height-verticalMargins)
 				}
-			} else {
-				// Resize list for full view
-				headerHeight := 3
-				footerHeight := 3
-				verticalMargins := headerHeight + footerHeight
-				m.list.SetSize(m.width, m.height-verticalMargins)
+				return m, nil
 			}
-			return m, nil
 		}
 
 		// Handle back
@@ -348,6 +525,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.list.SetItems(items)
 
+	case queriesMsg:
+		m.loadingQueries = false
+		m.queries = msg.queries
+		items := m.flattenQueries(msg.queries, 0)
+		m.queryList.SetItems(items)
+		logger.Printf("Query list populated with %d items", len(items))
+
 	case relationshipsLoadedMsg:
 		m.loadingRelations = false
 		m.relationshipData[msg.workItemID] = msg.relInfo
@@ -362,41 +546,87 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 	}
 
-	// Update list
-	prevIndex := m.list.Index()
-	m.list, cmd = m.list.Update(msg)
-	cmds = append(cmds, cmd)
+	// Update appropriate list based on current tab
+	if m.currentTab == 0 {
+		// Update query list
+		m.queryList, cmd = m.queryList.Update(msg)
+		cmds = append(cmds, cmd)
+	} else if m.currentTab == 1 {
+		// Update work item list
+		prevIndex := m.list.Index()
+		m.list, cmd = m.list.Update(msg)
+		cmds = append(cmds, cmd)
 
-	// Update details if selection changed while in details view
-	if m.showDetails && m.list.Index() != prevIndex && len(m.list.Items()) > 0 {
-		selectedItem := m.list.SelectedItem()
-		if item, ok := selectedItem.(workItemItem); ok {
-			m.selectedItem = &item.workItem
-			m.viewport.SetContent(m.formatWorkItemDetails(item.workItem))
-			m.viewport.GotoTop()
+		// Update details if selection changed while in details view
+		if m.showDetails && m.list.Index() != prevIndex && len(m.list.Items()) > 0 {
+			selectedItem := m.list.SelectedItem()
+			if item, ok := selectedItem.(workItemItem); ok {
+				m.selectedItem = &item.workItem
+				m.viewport.SetContent(m.formatWorkItemDetails(item.workItem))
+				m.viewport.GotoTop()
 
-			// Load relationships if not already loaded
-			workItemID := 0
-			if item.workItem.Id != nil {
-				workItemID = *item.workItem.Id
+				// Load relationships if not already loaded
+				workItemID := 0
+				if item.workItem.Id != nil {
+					workItemID = *item.workItem.Id
+				}
+				if _, exists := m.relationshipData[workItemID]; !exists && workItemID > 0 {
+					logger.Printf("Cache MISS for work item #%d - loading...", workItemID)
+					m.loadingRelations = true
+					cmds = append(cmds, loadRelationships(m.client, item.workItem))
+				} else if exists {
+					logger.Printf("Cache HIT for work item #%d - using cached data", workItemID)
+				}
 			}
-			if _, exists := m.relationshipData[workItemID]; !exists && workItemID > 0 {
-				fmt.Fprintf(os.Stderr, "[DEBUG] Cache MISS for work item #%d - loading...\n", workItemID)
-				m.loadingRelations = true
-				cmds = append(cmds, loadRelationships(m.client, item.workItem))
-			} else if exists {
-				fmt.Fprintf(os.Stderr, "[DEBUG] Cache HIT for work item #%d - using cached data\n", workItemID)
+		}
+
+		// Update viewport if details are shown
+		if m.showDetails {
+			m.viewport, cmd = m.viewport.Update(msg)
+			cmds = append(cmds, cmd)
+		}
+	}
+
+	return m, tea.Batch(cmds...)
+}
+
+// flattenQueries recursively flattens the query hierarchy into a list, respecting expanded state
+func (m Model) flattenQueries(queries []workitemtracking.QueryHierarchyItem, depth int) []list.Item {
+	var items []list.Item
+
+	for _, q := range queries {
+		name := ""
+		if q.Name != nil {
+			name = *q.Name
+		}
+
+		path := ""
+		if q.Path != nil {
+			path = *q.Path
+		}
+
+		isFolder := q.IsFolder != nil && *q.IsFolder
+
+		// Always add the current item (folder or query)
+		items = append(items, queryListItem{
+			Name:     name,
+			Path:     path,
+			IsFolder: isFolder,
+			Depth:    depth,
+			query:    q,
+		})
+
+		// Only add children if this is a folder AND it's expanded
+		if isFolder && q.Children != nil && len(*q.Children) > 0 {
+			// Check if folder is expanded
+			if m.expandedFolders[path] {
+				childItems := m.flattenQueries(*q.Children, depth+1)
+				items = append(items, childItems...)
 			}
 		}
 	}
 
-	// Update viewport if details are shown
-	if m.showDetails {
-		m.viewport, cmd = m.viewport.Update(msg)
-		cmds = append(cmds, cmd)
-	}
-
-	return m, tea.Batch(cmds...)
+	return items
 }
 
 // View renders the dashboard
@@ -414,27 +644,67 @@ func (m Model) View() string {
 			Render(fmt.Sprintf("Error: %v\n\nPress q to quit, r to retry", m.err))
 	}
 
-	if m.showDetails {
+	// Render based on current tab
+	switch m.currentTab {
+	case 0: // Queries tab
+		if m.loadingQueries {
+			return lipgloss.JoinVertical(
+				lipgloss.Left,
+				m.renderHeader(),
+				m.renderTabBar(),
+				"Loading queries...",
+				m.renderFooter(),
+			)
+		}
 		return lipgloss.JoinVertical(
 			lipgloss.Left,
 			m.renderHeader(),
+			m.renderTabBar(),
+			m.queryList.View(),
+			m.renderFooter(),
+		)
+	case 1: // Work Items tab
+		if m.showDetails {
+			return lipgloss.JoinVertical(
+				lipgloss.Left,
+				m.renderHeader(),
+				m.renderTabBar(),
+				m.list.View(),
+				m.renderDetailsHeader(),
+				lipgloss.NewStyle().
+					Border(lipgloss.RoundedBorder()).
+					BorderForeground(lipgloss.Color("62")).
+					Padding(1).
+					Render(m.viewport.View()),
+				m.renderFooter(),
+			)
+		}
+		return lipgloss.JoinVertical(
+			lipgloss.Left,
+			m.renderHeader(),
+			m.renderTabBar(),
 			m.list.View(),
-			m.renderDetailsHeader(),
-			lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color("62")).
-				Padding(1).
-				Render(m.viewport.View()),
+			m.renderFooter(),
+		)
+	case 2: // Pipelines tab
+		return lipgloss.JoinVertical(
+			lipgloss.Left,
+			m.renderHeader(),
+			m.renderTabBar(),
+			"Pipelines tab - Coming soon!",
+			m.renderFooter(),
+		)
+	case 3: // Agents tab
+		return lipgloss.JoinVertical(
+			lipgloss.Left,
+			m.renderHeader(),
+			m.renderTabBar(),
+			"Agents tab - Coming soon!",
 			m.renderFooter(),
 		)
 	}
 
-	return lipgloss.JoinVertical(
-		lipgloss.Left,
-		m.renderHeader(),
-		m.list.View(),
-		m.renderFooter(),
-	)
+	return "Unknown tab"
 }
 
 func (m Model) renderHeader() string {
@@ -448,6 +718,36 @@ func (m Model) renderHeader() string {
 		BorderForeground(lipgloss.Color("62")).
 		Padding(0, 1).
 		Render(title)
+}
+
+func (m Model) renderTabBar() string {
+	var tabs []string
+
+	inactiveTabStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("8")).
+		Padding(0, 2)
+
+	activeTabStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("6")).
+		Bold(true).
+		Underline(true).
+		Padding(0, 2)
+
+	for i, tab := range m.tabs {
+		if i == m.currentTab {
+			tabs = append(tabs, activeTabStyle.Render(tab))
+		} else {
+			tabs = append(tabs, inactiveTabStyle.Render(tab))
+		}
+	}
+
+	tabBar := lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
+
+	help := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("8")).
+		Render("  tab: switch")
+
+	return lipgloss.JoinHorizontal(lipgloss.Top, tabBar, help)
 }
 
 func (m Model) renderDetailsHeader() string {
@@ -619,6 +919,10 @@ type workItemsMsg struct {
 	items []workitemtracking.WorkItem
 }
 
+type queriesMsg struct {
+	queries []workitemtracking.QueryHierarchyItem
+}
+
 type relationshipsLoadedMsg struct {
 	workItemID int
 	relInfo    *relationshipInfo
@@ -637,8 +941,7 @@ func loadRelationships(client *api.Client, wi workitemtracking.WorkItem) tea.Cmd
 			workItemID = *wi.Id
 		}
 
-		// DEBUG: Print to stderr so it doesn't interfere with TUI
-		fmt.Fprintf(os.Stderr, "[DEBUG] Loading relationships for work item #%d\n", workItemID)
+		logger.Printf("Loading relationships for work item #%d", workItemID)
 
 		relInfo := &relationshipInfo{
 			loaded: false,
@@ -722,6 +1025,58 @@ func fetchWorkItems(client *api.Client) tea.Cmd {
 			workItems = *workItemsPtr
 		}
 
+		return workItemsMsg{items: workItems}
+	}
+}
+
+func fetchQueries(client *api.Client) tea.Cmd {
+	return func() tea.Msg {
+		logger.Println("Fetching saved queries...")
+
+		// Fetch queries with depth 2 to get folder structure
+		queriesPtr, err := client.ListQueries("", 2)
+		if err != nil {
+			logger.Printf("Error fetching queries: %v", err)
+			return errMsg{err: err}
+		}
+
+		var queries []workitemtracking.QueryHierarchyItem
+		if queriesPtr != nil {
+			queries = *queriesPtr
+		}
+
+		logger.Printf("Loaded %d top-level query items", len(queries))
+		return queriesMsg{queries: queries}
+	}
+}
+
+func executeQuery(client *api.Client, query workitemtracking.QueryHierarchyItem) tea.Cmd {
+	return func() tea.Msg {
+		queryID := ""
+		if query.Id != nil {
+			queryID = query.Id.String()
+		}
+
+		queryName := ""
+		if query.Name != nil {
+			queryName = *query.Name
+		}
+
+		logger.Printf("Executing query '%s' (ID: %s)", queryName, queryID)
+
+		// Execute the query and get work items
+		workItemsPtr, err := client.ExecuteQuery(queryID, 100)
+		if err != nil {
+			logger.Printf("Error executing query: %v", err)
+			return errMsg{err: err}
+		}
+
+		var workItems []workitemtracking.WorkItem
+		if workItemsPtr != nil {
+			workItems = *workItemsPtr
+		}
+
+		logger.Printf("Query returned %d work items", len(workItems))
 		return workItemsMsg{items: workItems}
 	}
 }
