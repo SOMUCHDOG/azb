@@ -3,7 +3,9 @@ package tui
 import (
 	"fmt"
 	"io"
+	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -15,6 +17,37 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/workitemtracking"
 )
+
+var (
+	logger  *log.Logger
+	logFile *os.File
+)
+
+func init() {
+	// Set up logging to file
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		// If we can't get home dir, disable logging
+		logger = log.New(io.Discard, "", 0)
+		return
+	}
+
+	logDir := filepath.Join(homeDir, ".azure-boards-cli")
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		// If we can't create directory, disable logging
+		logger = log.New(io.Discard, "", 0)
+		return
+	}
+
+	logFile, err = os.OpenFile(filepath.Join(logDir, "tui.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		// If we can't open log file, disable logging
+		logger = log.New(io.Discard, "", 0)
+		return
+	}
+
+	logger = log.New(logFile, "[TUI] ", log.LstdFlags)
+}
 
 // KeyMap defines keyboard shortcuts
 type KeyMap struct {
@@ -291,7 +324,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Handle refresh
 		if key.Matches(msg, m.keys.Refresh) {
-			fmt.Fprintf(os.Stderr, "[DEBUG] Refresh triggered - clearing cache\n")
+			logger.Println("Refresh triggered - clearing cache")
 			m.loading = true
 			// Clear caches
 			m.workItemCache = make(map[int]*workitemtracking.WorkItem)
@@ -328,11 +361,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						workItemID = *item.workItem.Id
 					}
 					if _, exists := m.relationshipData[workItemID]; !exists && workItemID > 0 {
-						fmt.Fprintf(os.Stderr, "[DEBUG] Cache MISS for work item #%d - loading...\n", workItemID)
+						logger.Printf("Cache MISS for work item #%d - loading...", workItemID)
 						m.loadingRelations = true
 						return m, loadRelationships(m.client, item.workItem)
 					} else if exists {
-						fmt.Fprintf(os.Stderr, "[DEBUG] Cache HIT for work item #%d - using cached data\n", workItemID)
+						logger.Printf("Cache HIT for work item #%d - using cached data", workItemID)
 					}
 				}
 			} else {
@@ -399,11 +432,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				workItemID = *item.workItem.Id
 			}
 			if _, exists := m.relationshipData[workItemID]; !exists && workItemID > 0 {
-				fmt.Fprintf(os.Stderr, "[DEBUG] Cache MISS for work item #%d - loading...\n", workItemID)
+				logger.Printf("Cache MISS for work item #%d - loading...", workItemID)
 				m.loadingRelations = true
 				cmds = append(cmds, loadRelationships(m.client, item.workItem))
 			} else if exists {
-				fmt.Fprintf(os.Stderr, "[DEBUG] Cache HIT for work item #%d - using cached data\n", workItemID)
+				logger.Printf("Cache HIT for work item #%d - using cached data", workItemID)
 			}
 		}
 	}
@@ -716,8 +749,7 @@ func loadRelationships(client *api.Client, wi workitemtracking.WorkItem) tea.Cmd
 			workItemID = *wi.Id
 		}
 
-		// DEBUG: Print to stderr so it doesn't interfere with TUI
-		fmt.Fprintf(os.Stderr, "[DEBUG] Loading relationships for work item #%d\n", workItemID)
+		logger.Printf("Loading relationships for work item #%d", workItemID)
 
 		relInfo := &relationshipInfo{
 			loaded: false,
