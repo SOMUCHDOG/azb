@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/casey/azure-boards-cli/internal/api"
+	"github.com/casey/azure-boards-cli/internal/templates"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -147,7 +148,7 @@ type Model struct {
 	err              error
 
 	// Tab navigation
-	currentTab int      // 0=queries, 1=workitems, 2=pipelines, 3=agents
+	currentTab int      // 0=queries, 1=workitems, 2=templates, 3=pipelines, 4=agents
 	tabs       []string // Tab names
 
 	// Queries tab
@@ -155,6 +156,12 @@ type Model struct {
 	queryList       list.Model
 	loadingQueries  bool
 	expandedFolders map[string]bool // Track which folders are expanded by their path
+
+	// Templates tab
+	templates              []*templates.TemplateNode
+	templateList           list.Model
+	loadingTemplates       bool
+	expandedTemplateFolders map[string]bool // Track which template folders are expanded
 }
 
 // relationshipInfo stores formatted relationship data for a work item
@@ -301,6 +308,72 @@ type workItemItem struct {
 
 func (i workItemItem) FilterValue() string { return i.Title }
 
+// templateListItem wraps a template node for the list
+type templateListItem struct {
+	Name     string
+	Path     string
+	IsDir    bool
+	Depth    int
+	Template *templates.Template
+	node     *templates.TemplateNode
+}
+
+func (i templateListItem) FilterValue() string { return i.Name }
+
+// templateDelegate implements list.ItemDelegate for template items
+type templateDelegate struct {
+	expandedFolders map[string]bool
+}
+
+func (d templateDelegate) Height() int                             { return 1 }
+func (d templateDelegate) Spacing() int                            { return 0 }
+func (d templateDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
+func (d templateDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
+	templateItem, ok := item.(templateListItem)
+	if !ok {
+		return
+	}
+
+	var (
+		normalStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
+		selectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
+		folderStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
+		templateStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
+	)
+
+	indent := strings.Repeat("  ", templateItem.Depth)
+	icon := ""
+	nameStyle := normalStyle
+
+	if templateItem.IsDir {
+		// Check if folder is expanded
+		expanded := d.expandedFolders[templateItem.Path]
+		if expanded {
+			icon = "▼ "
+		} else {
+			icon = "▶ "
+		}
+		nameStyle = folderStyle
+	} else {
+		icon = "  📄 "
+		nameStyle = templateStyle
+	}
+
+	name := templateItem.Name
+	if len(name) > 60 {
+		name = name[:57] + "..."
+	}
+
+	var output string
+	if index == m.Index() {
+		output = selectedStyle.Render(fmt.Sprintf("> %s%s%s", indent, icon, name))
+	} else {
+		output = nameStyle.Render(fmt.Sprintf("  %s%s%s", indent, icon, name))
+	}
+
+	fmt.Fprint(w, output)
+}
+
 // NewModel creates a new dashboard model
 func NewModel(client *api.Client) Model {
 	keys := DefaultKeyMap()
@@ -330,6 +403,19 @@ func NewModel(client *api.Client) Model {
 		Foreground(lipgloss.Color("230")).
 		Padding(0, 1)
 
+	// Create templates list with delegate that tracks expanded folders
+	expandedTemplateFolders := make(map[string]bool)
+	templateItems := []list.Item{}
+	templateDel := templateDelegate{expandedFolders: expandedTemplateFolders}
+	tl := list.New(templateItems, templateDel, 0, 0)
+	tl.Title = "Templates"
+	tl.SetShowStatusBar(true)
+	tl.SetFilteringEnabled(true)
+	tl.Styles.Title = lipgloss.NewStyle().
+		Background(lipgloss.Color("62")).
+		Foreground(lipgloss.Color("230")).
+		Padding(0, 1)
+
 	// Create viewport for details
 	vp := viewport.New(0, 0)
 
@@ -347,13 +433,19 @@ func NewModel(client *api.Client) Model {
 
 		// Initialize tabs
 		currentTab: 1, // Start on "Work Items" tab (index 1)
-		tabs:       []string{"Queries", "Work Items", "Pipelines", "Agents"},
+		tabs:       []string{"Queries", "Work Items", "Templates", "Pipelines", "Agents"},
 
 		// Initialize queries
 		queries:         []workitemtracking.QueryHierarchyItem{},
 		queryList:       ql,
 		loadingQueries:  true,
 		expandedFolders: make(map[string]bool),
+
+		// Initialize templates
+		templates:               []*templates.TemplateNode{},
+		templateList:            tl,
+		loadingTemplates:        true,
+		expandedTemplateFolders: expandedTemplateFolders,
 	}
 }
 
@@ -362,6 +454,7 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		fetchWorkItems(m.client),
 		fetchQueries(m.client),
+		fetchTemplates(),
 		tea.EnterAltScreen,
 	)
 }
@@ -382,6 +475,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Update query list size
 		m.queryList.SetSize(m.width, m.height-verticalMargins)
+
+		// Update template list size
+		m.templateList.SetSize(m.width, m.height-verticalMargins)
 
 		if m.showDetails {
 			// Split view: list on top, details on bottom
@@ -501,6 +597,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.list.SetSize(m.width, m.height-verticalMargins)
 				}
 				return m, nil
+			} else if m.currentTab == 2 {
+				// Templates tab - toggle folder
+				selectedItem := m.templateList.SelectedItem()
+				if item, ok := selectedItem.(templateListItem); ok {
+					if item.IsDir {
+						// Toggle folder expand/collapse
+						m.expandedTemplateFolders[item.Path] = !m.expandedTemplateFolders[item.Path]
+						logger.Printf("Toggling template folder '%s' to expanded=%v", item.Name, m.expandedTemplateFolders[item.Path])
+
+						// Rebuild the template list with new expanded state and delegate
+						items := m.flattenTemplates(m.templates, 0)
+						templateDel := templateDelegate{expandedFolders: m.expandedTemplateFolders}
+						m.templateList = list.New(items, templateDel, m.width, m.height-6)
+						m.templateList.Title = "Templates"
+						m.templateList.SetShowStatusBar(true)
+						m.templateList.SetFilteringEnabled(true)
+						m.templateList.Styles.Title = lipgloss.NewStyle().
+							Background(lipgloss.Color("62")).
+							Foreground(lipgloss.Color("230")).
+							Padding(0, 1)
+					} else {
+						// TODO: Handle template selection/use
+						logger.Printf("Selected template: %s", item.Name)
+					}
+				}
+				return m, nil
 			}
 		}
 
@@ -531,6 +653,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		items := m.flattenQueries(msg.queries, 0)
 		m.queryList.SetItems(items)
 		logger.Printf("Query list populated with %d items", len(items))
+
+	case templatesMsg:
+		m.loadingTemplates = false
+		m.templates = msg.templates
+		items := m.flattenTemplates(msg.templates, 0)
+		m.templateList.SetItems(items)
+		logger.Printf("Template list populated with %d items", len(items))
 
 	case relationshipsLoadedMsg:
 		m.loadingRelations = false
@@ -585,6 +714,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport, cmd = m.viewport.Update(msg)
 			cmds = append(cmds, cmd)
 		}
+	} else if m.currentTab == 2 {
+		// Update template list
+		m.templateList, cmd = m.templateList.Update(msg)
+		cmds = append(cmds, cmd)
 	}
 
 	return m, tea.Batch(cmds...)
@@ -621,6 +754,34 @@ func (m Model) flattenQueries(queries []workitemtracking.QueryHierarchyItem, dep
 			// Check if folder is expanded
 			if m.expandedFolders[path] {
 				childItems := m.flattenQueries(*q.Children, depth+1)
+				items = append(items, childItems...)
+			}
+		}
+	}
+
+	return items
+}
+
+// flattenTemplates recursively flattens the template hierarchy into a list, respecting expanded state
+func (m Model) flattenTemplates(templateNodes []*templates.TemplateNode, depth int) []list.Item {
+	var items []list.Item
+
+	for _, node := range templateNodes {
+		// Always add the current item (folder or template)
+		items = append(items, templateListItem{
+			Name:     node.Name,
+			Path:     node.Path,
+			IsDir:    node.IsDir,
+			Depth:    depth,
+			Template: node.Template,
+			node:     node,
+		})
+
+		// Only add children if this is a directory AND it's expanded
+		if node.IsDir && node.Children != nil && len(node.Children) > 0 {
+			// Check if folder is expanded
+			if m.expandedTemplateFolders[node.Path] {
+				childItems := m.flattenTemplates(node.Children, depth+1)
 				items = append(items, childItems...)
 			}
 		}
@@ -686,7 +847,24 @@ func (m Model) View() string {
 			m.list.View(),
 			m.renderFooter(),
 		)
-	case 2: // Pipelines tab
+	case 2: // Templates tab
+		if m.loadingTemplates {
+			return lipgloss.JoinVertical(
+				lipgloss.Left,
+				m.renderHeader(),
+				m.renderTabBar(),
+				"Loading templates...",
+				m.renderFooter(),
+			)
+		}
+		return lipgloss.JoinVertical(
+			lipgloss.Left,
+			m.renderHeader(),
+			m.renderTabBar(),
+			m.templateList.View(),
+			m.renderFooter(),
+		)
+	case 3: // Pipelines tab
 		return lipgloss.JoinVertical(
 			lipgloss.Left,
 			m.renderHeader(),
@@ -694,7 +872,7 @@ func (m Model) View() string {
 			"Pipelines tab - Coming soon!",
 			m.renderFooter(),
 		)
-	case 3: // Agents tab
+	case 4: // Agents tab
 		return lipgloss.JoinVertical(
 			lipgloss.Left,
 			m.renderHeader(),
@@ -923,6 +1101,10 @@ type queriesMsg struct {
 	queries []workitemtracking.QueryHierarchyItem
 }
 
+type templatesMsg struct {
+	templates []*templates.TemplateNode
+}
+
 type relationshipsLoadedMsg struct {
 	workItemID int
 	relInfo    *relationshipInfo
@@ -1078,5 +1260,20 @@ func executeQuery(client *api.Client, query workitemtracking.QueryHierarchyItem)
 
 		logger.Printf("Query returned %d work items", len(workItems))
 		return workItemsMsg{items: workItems}
+	}
+}
+
+func fetchTemplates() tea.Cmd {
+	return func() tea.Msg {
+		logger.Println("Fetching templates...")
+
+		templateNodes, err := templates.ListTree()
+		if err != nil {
+			logger.Printf("Error fetching templates: %v", err)
+			return errMsg{err: err}
+		}
+
+		logger.Printf("Loaded %d top-level template items", len(templateNodes))
+		return templatesMsg{templates: templateNodes}
 	}
 }
