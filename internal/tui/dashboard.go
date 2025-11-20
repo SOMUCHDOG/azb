@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/casey/azure-boards-cli/internal/templates"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -158,10 +160,19 @@ type Model struct {
 	expandedFolders map[string]bool // Track which folders are expanded by their path
 
 	// Templates tab
-	templates              []*templates.TemplateNode
-	templateList           list.Model
-	loadingTemplates       bool
+	templates               []*templates.TemplateNode
+	templateList            list.Model
+	loadingTemplates        bool
 	expandedTemplateFolders map[string]bool // Track which template folders are expanded
+	templatePreview         viewport.Model  // Preview viewport for template content
+	selectedTemplate        *templates.Template
+
+	// Input mode for prompts
+	inputMode        bool        // True when showing an input prompt
+	inputPrompt      string      // The prompt message
+	inputField       textinput.Model
+	inputAction      string      // What action to perform with the input (copy-template, create-folder)
+	inputContext     interface{} // Context data for the input action
 }
 
 // relationshipInfo stores formatted relationship data for a work item
@@ -419,6 +430,14 @@ func NewModel(client *api.Client) Model {
 	// Create viewport for details
 	vp := viewport.New(0, 0)
 
+	// Create viewport for template preview
+	templateVP := viewport.New(0, 0)
+
+	// Create text input for prompts
+	ti := textinput.New()
+	ti.Placeholder = "Enter name..."
+	ti.CharLimit = 100
+
 	return Model{
 		client:           client,
 		workItems:        []workitemtracking.WorkItem{},
@@ -446,6 +465,12 @@ func NewModel(client *api.Client) Model {
 		templateList:            tl,
 		loadingTemplates:        true,
 		expandedTemplateFolders: expandedTemplateFolders,
+		templatePreview:         templateVP,
+
+		// Initialize input mode
+		inputMode:   false,
+		inputField:  ti,
+		inputAction: "",
 	}
 }
 
@@ -476,8 +501,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update query list size
 		m.queryList.SetSize(m.width, m.height-verticalMargins)
 
-		// Update template list size
-		m.templateList.SetSize(m.width, m.height-verticalMargins)
+		// Update template list and preview (split view)
+		templateListWidth := m.width / 2
+		templatePreviewWidth := m.width - templateListWidth - 2
+		m.templateList.SetSize(templateListWidth, m.height-verticalMargins)
+		m.templatePreview.Width = templatePreviewWidth
+		m.templatePreview.Height = m.height - verticalMargins - 2
 
 		if m.showDetails {
 			// Split view: list on top, details on bottom
@@ -497,6 +526,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
+		// Handle input mode first
+		if m.inputMode {
+			switch msg.Type {
+			case tea.KeyEnter:
+				// Process the input
+				value := strings.TrimSpace(m.inputField.Value())
+				if value != "" {
+					return m, m.handleInputSubmit(value)
+				}
+				return m, nil
+			case tea.KeyEsc:
+				// Cancel input mode
+				m.inputMode = false
+				m.inputField.Blur()
+				return m, nil
+			default:
+				// Update the input field
+				var cmd tea.Cmd
+				m.inputField, cmd = m.inputField.Update(msg)
+				return m, cmd
+			}
+		}
+
 		// Handle quit
 		if key.Matches(msg, m.keys.Quit) {
 			return m, tea.Quit
@@ -618,12 +670,103 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							Foreground(lipgloss.Color("230")).
 							Padding(0, 1)
 					} else {
-						// TODO: Handle template selection/use
-						logger.Printf("Selected template: %s", item.Name)
+						// Create work item from template
+						logger.Printf("Creating work item from template: %s", item.Name)
+						return m, createFromTemplate(m.client, item.Template, item.Path)
 					}
 				}
 				return m, nil
 			}
+		}
+
+		// Handle Edit key for templates
+		if key.Matches(msg, m.keys.Edit) && m.currentTab == 2 && !m.inputMode {
+			selectedItem := m.templateList.SelectedItem()
+			if item, ok := selectedItem.(templateListItem); ok {
+				if !item.IsDir {
+					logger.Printf("Editing template: %s", item.Name)
+					return m, editTemplate(item.Path)
+				}
+			}
+			return m, nil
+		}
+
+		// Handle Copy key for templates (c)
+		if msg.String() == "c" && m.currentTab == 2 && !m.inputMode {
+			selectedItem := m.templateList.SelectedItem()
+			if item, ok := selectedItem.(templateListItem); ok {
+				if !item.IsDir {
+					logger.Printf("Copying template: %s", item.Name)
+					m.inputMode = true
+					m.inputPrompt = fmt.Sprintf("Copy '%s' as:", item.Name)
+					m.inputAction = "copy-template"
+					m.inputContext = item
+					m.inputField.SetValue("")
+					m.inputField.Focus()
+					return m, textinput.Blink
+				}
+			}
+			return m, nil
+		}
+
+		// Handle New folder key (f)
+		if msg.String() == "f" && m.currentTab == 2 && !m.inputMode {
+			selectedItem := m.templateList.SelectedItem()
+			var parentPath string
+
+			if item, ok := selectedItem.(templateListItem); ok {
+				if item.IsDir {
+					// Creating folder inside highlighted folder
+					parentPath = item.Path
+					logger.Printf("Creating new folder inside: %s", parentPath)
+				} else {
+					// Creating folder in same directory as highlighted file
+					parentPath = item.node.ParentPath
+					logger.Printf("Creating new folder in parent: %s", parentPath)
+				}
+			} else {
+				// Creating folder at root
+				parentPath = ""
+				logger.Println("Creating new folder at root")
+			}
+
+			m.inputMode = true
+			m.inputPrompt = "New folder name:"
+			m.inputAction = "create-folder"
+			m.inputContext = parentPath
+			m.inputField.SetValue("")
+			m.inputField.Focus()
+			return m, textinput.Blink
+		}
+
+		// Handle New template key (n) - creates from basic template
+		if msg.String() == "n" && m.currentTab == 2 && !m.inputMode {
+			selectedItem := m.templateList.SelectedItem()
+			var parentPath string
+
+			if item, ok := selectedItem.(templateListItem); ok {
+				if item.IsDir {
+					// Creating template inside highlighted folder
+					parentPath = item.Path
+					logger.Printf("Creating new template inside: %s", parentPath)
+				} else {
+					// Creating template in same directory as highlighted file
+					parentPath = item.node.ParentPath
+					logger.Printf("Creating new template in parent: %s", parentPath)
+				}
+			} else {
+				// Creating template at root
+				parentPath = ""
+				logger.Println("Creating new template at root")
+			}
+
+			m.inputMode = true
+			m.inputPrompt = "New template name:"
+			m.inputAction = "create-template"
+			m.inputContext = parentPath
+			m.inputField.SetValue("")
+			m.inputField.Focus()
+			return m, textinput.Blink
 		}
 
 		// Handle back
@@ -660,6 +803,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		items := m.flattenTemplates(msg.templates, 0)
 		m.templateList.SetItems(items)
 		logger.Printf("Template list populated with %d items", len(items))
+
+		// Initialize preview with first item if available
+		if len(items) > 0 {
+			if item, ok := items[0].(templateListItem); ok {
+				if !item.IsDir && item.Template != nil {
+					m.selectedTemplate = item.Template
+					m.templatePreview.SetContent(m.formatTemplatePreview(item.Template))
+					m.templatePreview.GotoTop()
+				} else if item.IsDir {
+					m.selectedTemplate = nil
+					m.templatePreview.SetContent(m.formatFolderPreview(item))
+					m.templatePreview.GotoTop()
+				}
+			}
+		}
 
 	case relationshipsLoadedMsg:
 		m.loadingRelations = false
@@ -715,12 +873,62 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 	} else if m.currentTab == 2 {
-		// Update template list
-		m.templateList, cmd = m.templateList.Update(msg)
-		cmds = append(cmds, cmd)
+		// Update template list (unless in input mode)
+		if !m.inputMode {
+			prevIndex := m.templateList.Index()
+			m.templateList, cmd = m.templateList.Update(msg)
+			cmds = append(cmds, cmd)
+
+			// Update preview if selection changed
+			if m.templateList.Index() != prevIndex && len(m.templateList.Items()) > 0 {
+				selectedItem := m.templateList.SelectedItem()
+				if item, ok := selectedItem.(templateListItem); ok {
+					if !item.IsDir && item.Template != nil {
+						m.selectedTemplate = item.Template
+						m.templatePreview.SetContent(m.formatTemplatePreview(item.Template))
+						m.templatePreview.GotoTop()
+					} else if item.IsDir {
+						m.selectedTemplate = nil
+						m.templatePreview.SetContent(m.formatFolderPreview(item))
+						m.templatePreview.GotoTop()
+					}
+				}
+			}
+
+			// Update viewport for scrolling preview
+			m.templatePreview, cmd = m.templatePreview.Update(msg)
+			cmds = append(cmds, cmd)
+		}
 	}
 
 	return m, tea.Batch(cmds...)
+}
+
+// handleInputSubmit processes the submitted input based on the current action
+func (m Model) handleInputSubmit(value string) tea.Cmd {
+	m.inputMode = false
+	m.inputField.Blur()
+
+	switch m.inputAction {
+	case "copy-template":
+		if item, ok := m.inputContext.(templateListItem); ok {
+			return copyTemplate(item, value)
+		}
+	case "create-folder":
+		parentPath := ""
+		if p, ok := m.inputContext.(string); ok {
+			parentPath = p
+		}
+		return createFolder(parentPath, value)
+	case "create-template":
+		parentPath := ""
+		if p, ok := m.inputContext.(string); ok {
+			parentPath = p
+		}
+		return createTemplate(parentPath, value)
+	}
+
+	return nil
 }
 
 // flattenQueries recursively flattens the query hierarchy into a list, respecting expanded state
@@ -857,11 +1065,42 @@ func (m Model) View() string {
 				m.renderFooter(),
 			)
 		}
+		if m.inputMode {
+			// Show input prompt overlay
+			splitView := lipgloss.JoinHorizontal(
+				lipgloss.Top,
+				m.templateList.View(),
+				lipgloss.NewStyle().
+					Border(lipgloss.RoundedBorder()).
+					BorderForeground(lipgloss.Color("62")).
+					Padding(1).
+					Render(m.templatePreview.View()),
+			)
+			return lipgloss.JoinVertical(
+				lipgloss.Left,
+				m.renderHeader(),
+				m.renderTabBar(),
+				splitView,
+				"",
+				m.renderInputPrompt(),
+				m.renderFooter(),
+			)
+		}
+		// Split view: list on left, preview on right
+		splitView := lipgloss.JoinHorizontal(
+			lipgloss.Top,
+			m.templateList.View(),
+			lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color("62")).
+				Padding(1).
+				Render(m.templatePreview.View()),
+		)
 		return lipgloss.JoinVertical(
 			lipgloss.Left,
 			m.renderHeader(),
 			m.renderTabBar(),
-			m.templateList.View(),
+			splitView,
 			m.renderFooter(),
 		)
 	case 3: // Pipelines tab
@@ -939,10 +1178,50 @@ func (m Model) renderDetailsHeader() string {
 		Render(header)
 }
 
-func (m Model) renderFooter() string {
+func (m Model) renderInputPrompt() string {
+	prompt := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("6")).
+		Bold(true).
+		Render(m.inputPrompt)
+
+	input := m.inputField.View()
+
 	help := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("8")).
-		Render("↑/↓: navigate • enter: details • r: refresh • ?: help • q: quit")
+		Render("  (enter: submit • esc: cancel)")
+
+	content := fmt.Sprintf("%s\n%s%s", prompt, input, help)
+
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("6")).
+		Padding(1).
+		Width(m.width - 4).
+		Render(content)
+}
+
+func (m Model) renderFooter() string {
+	var helpText string
+
+	// Context-sensitive help based on current tab
+	switch m.currentTab {
+	case 0: // Queries
+		helpText = "↑/↓: navigate • enter: toggle folder/execute query • tab: switch tabs • r: refresh • q: quit"
+	case 1: // Work Items
+		helpText = "↑/↓: navigate • enter: details • tab: switch tabs • r: refresh • q: quit"
+	case 2: // Templates
+		helpText = "↑/↓: navigate • enter: create • e: edit • c: copy • n: new template • f: new folder • tab: switch tabs • q: quit"
+	case 3: // Pipelines
+		helpText = "tab: switch tabs • q: quit"
+	case 4: // Agents
+		helpText = "tab: switch tabs • q: quit"
+	default:
+		helpText = "↑/↓: navigate • enter: select • tab: switch tabs • q: quit"
+	}
+
+	help := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("8")).
+		Render(helpText)
 
 	return lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
@@ -1089,6 +1368,98 @@ func cleanAssignedTo(assignedTo string) string {
 
 	// Otherwise return as-is (likely just email or name)
 	return assignedTo
+}
+
+// formatTemplatePreview formats a template for preview display
+func (m Model) formatTemplatePreview(template *templates.Template) string {
+	var b strings.Builder
+
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("6"))
+
+	labelStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("8"))
+
+	b.WriteString(titleStyle.Render(template.Name) + "\n\n")
+
+	if template.Description != "" {
+		b.WriteString(template.Description + "\n\n")
+	}
+
+	b.WriteString(labelStyle.Render("Type: ") + template.Type + "\n\n")
+
+	if len(template.Fields) > 0 {
+		b.WriteString(labelStyle.Render("Fields:\n"))
+		for key, value := range template.Fields {
+			// Format field name to be more readable
+			fieldName := strings.TrimPrefix(key, "System.")
+			fieldName = strings.TrimPrefix(fieldName, "Microsoft.VSTS.Common.")
+			fieldName = strings.TrimPrefix(fieldName, "Custom.")
+
+			b.WriteString(fmt.Sprintf("  %s: %v\n", fieldName, value))
+		}
+		b.WriteString("\n")
+	}
+
+	if template.Relations != nil {
+		if template.Relations.ParentID > 0 {
+			b.WriteString(labelStyle.Render(fmt.Sprintf("Parent ID: %d\n\n", template.Relations.ParentID)))
+		}
+
+		if len(template.Relations.Children) > 0 {
+			b.WriteString(labelStyle.Render(fmt.Sprintf("Children: (%d)\n", len(template.Relations.Children))))
+			for i, child := range template.Relations.Children {
+				childType := child.Type
+				if childType == "" {
+					childType = "Task"
+				}
+				b.WriteString(fmt.Sprintf("  %d. [%s] %s\n", i+1, childType, child.Title))
+			}
+		}
+	}
+
+	return b.String()
+}
+
+// formatFolderPreview formats a folder for preview display
+func (m Model) formatFolderPreview(item templateListItem) string {
+	var b strings.Builder
+
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("6"))
+
+	labelStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("8"))
+
+	b.WriteString(titleStyle.Render("📁 " + item.Name) + "\n\n")
+
+	if item.node != nil && len(item.node.Children) > 0 {
+		b.WriteString(labelStyle.Render(fmt.Sprintf("Contents: %d items\n\n", len(item.node.Children))))
+
+		// Count folders and templates
+		folderCount := 0
+		templateCount := 0
+		for _, child := range item.node.Children {
+			if child.IsDir {
+				folderCount++
+			} else {
+				templateCount++
+			}
+		}
+
+		if folderCount > 0 {
+			b.WriteString(labelStyle.Render(fmt.Sprintf("Folders: %d\n", folderCount)))
+		}
+		if templateCount > 0 {
+			b.WriteString(labelStyle.Render(fmt.Sprintf("Templates: %d\n", templateCount)))
+		}
+	} else {
+		b.WriteString(labelStyle.Render("Empty folder\n"))
+	}
+
+	return b.String()
 }
 
 // Messages
@@ -1275,5 +1646,260 @@ func fetchTemplates() tea.Cmd {
 
 		logger.Printf("Loaded %d top-level template items", len(templateNodes))
 		return templatesMsg{templates: templateNodes}
+	}
+}
+
+func createFromTemplate(client *api.Client, template *templates.Template, templatePath string) tea.Cmd {
+	return func() tea.Msg {
+		if template == nil {
+			logger.Printf("Error: template is nil")
+			return errMsg{err: fmt.Errorf("template is nil")}
+		}
+
+		logger.Printf("Creating work item from template: %s (path: %s)", template.Name, templatePath)
+
+		// Build fields map from template
+		fields := make(map[string]interface{})
+
+		// Copy all template fields
+		for k, v := range template.Fields {
+			fields[k] = v
+		}
+
+		// Ensure we have required fields
+		if fields["System.Title"] == nil || fields["System.Title"] == "" {
+			return errMsg{err: fmt.Errorf("template missing required field: System.Title")}
+		}
+
+		// Determine parent ID from template
+		parentID := 0
+		if template.Relations != nil && template.Relations.ParentID > 0 {
+			parentID = template.Relations.ParentID
+		}
+
+		// Create the work item
+		workItemPtr, err := client.CreateWorkItem(template.Type, fields, parentID)
+		if err != nil {
+			logger.Printf("Error creating work item: %v", err)
+			return errMsg{err: fmt.Errorf("failed to create work item: %w", err)}
+		}
+
+		var workItemID int
+		if workItemPtr != nil && workItemPtr.Id != nil {
+			workItemID = *workItemPtr.Id
+		}
+
+		logger.Printf("Successfully created work item #%d from template", workItemID)
+
+		// Create child work items if specified in template
+		if template.Relations != nil && len(template.Relations.Children) > 0 {
+			for _, child := range template.Relations.Children {
+				childFields := make(map[string]interface{})
+
+				// Copy child fields
+				for k, v := range child.Fields {
+					childFields[k] = v
+				}
+
+				// Set title and description from child
+				if child.Title != "" {
+					childFields["System.Title"] = child.Title
+				}
+				if child.Description != "" {
+					childFields["System.Description"] = child.Description
+				}
+				if child.AssignedTo != "" {
+					childFields["System.AssignedTo"] = child.AssignedTo
+				}
+
+				// Determine child type
+				childType := child.Type
+				if childType == "" {
+					childType = "Task" // Default to Task
+				}
+
+				// Create child work item with parent link
+				childWI, err := client.CreateWorkItem(childType, childFields, workItemID)
+				if err != nil {
+					logger.Printf("Warning: Failed to create child work item '%s': %v", child.Title, err)
+					continue
+				}
+
+				var childID int
+				if childWI != nil && childWI.Id != nil {
+					childID = *childWI.Id
+					logger.Printf("Created child work item #%d: %s", childID, child.Title)
+				}
+			}
+		}
+
+		// Refresh the work items list
+		return tea.Msg(nil) // TODO: Return a success message or refresh command
+	}
+}
+
+func editTemplate(templatePath string) tea.Cmd {
+	// Get the template directory
+	templatesDir, err := templates.GetTemplatesDir()
+	if err != nil {
+		logger.Printf("Error getting templates directory: %v", err)
+		return func() tea.Msg {
+			return errMsg{err: err}
+		}
+	}
+
+	// Build full path
+	fullPath := filepath.Join(templatesDir, templatePath)
+
+	// Ensure it has .yaml extension
+	if !strings.HasSuffix(fullPath, ".yaml") && !strings.HasSuffix(fullPath, ".yml") {
+		fullPath += ".yaml"
+	}
+
+	// Get editor from environment or use default
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "vi" // Default to vi
+	}
+
+	logger.Printf("Opening editor '%s' for file: %s", editor, fullPath)
+
+	// Use tea.ExecProcess to open the editor
+	c := exec.Command(editor, fullPath)
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		if err != nil {
+			logger.Printf("Error opening editor: %v", err)
+			return errMsg{err: fmt.Errorf("failed to open editor: %w", err)}
+		}
+		logger.Printf("Editor closed, reloading templates")
+		// Reload templates after editing
+		return fetchTemplates()()
+	})
+}
+
+func copyTemplate(sourceItem templateListItem, newName string) tea.Cmd {
+	return func() tea.Msg {
+		logger.Printf("Copying template '%s' to '%s'", sourceItem.Name, newName)
+
+		templatesDir, err := templates.GetTemplatesDir()
+		if err != nil {
+			logger.Printf("Error getting templates directory: %v", err)
+			return errMsg{err: err}
+		}
+
+		// Build source path
+		sourcePath := filepath.Join(templatesDir, sourceItem.Path)
+		if !strings.HasSuffix(sourcePath, ".yaml") && !strings.HasSuffix(sourcePath, ".yml") {
+			sourcePath += ".yaml"
+		}
+
+		// Build destination path (in same directory as source)
+		destName := newName
+		if !strings.HasSuffix(destName, ".yaml") && !strings.HasSuffix(destName, ".yml") {
+			destName += ".yaml"
+		}
+
+		var destPath string
+		if sourceItem.node.ParentPath != "" {
+			destPath = filepath.Join(templatesDir, sourceItem.node.ParentPath, destName)
+		} else {
+			destPath = filepath.Join(templatesDir, destName)
+		}
+
+		// Read source file
+		data, err := os.ReadFile(sourcePath)
+		if err != nil {
+			logger.Printf("Error reading source template: %v", err)
+			return errMsg{err: fmt.Errorf("failed to read template: %w", err)}
+		}
+
+		// Write to destination
+		err = os.WriteFile(destPath, data, 0644)
+		if err != nil {
+			logger.Printf("Error writing destination template: %v", err)
+			return errMsg{err: fmt.Errorf("failed to write template: %w", err)}
+		}
+
+		logger.Printf("Successfully copied template to: %s", destPath)
+
+		// Reload templates
+		return fetchTemplates()()
+	}
+}
+
+func createFolder(parentPath, folderName string) tea.Cmd {
+	return func() tea.Msg {
+		logger.Printf("Creating folder '%s' in '%s'", folderName, parentPath)
+
+		templatesDir, err := templates.GetTemplatesDir()
+		if err != nil {
+			logger.Printf("Error getting templates directory: %v", err)
+			return errMsg{err: err}
+		}
+
+		// Build folder path
+		var folderPath string
+		if parentPath != "" {
+			folderPath = filepath.Join(templatesDir, parentPath, folderName)
+		} else {
+			folderPath = filepath.Join(templatesDir, folderName)
+		}
+
+		// Create the directory
+		err = os.MkdirAll(folderPath, 0755)
+		if err != nil {
+			logger.Printf("Error creating folder: %v", err)
+			return errMsg{err: fmt.Errorf("failed to create folder: %w", err)}
+		}
+
+		logger.Printf("Successfully created folder: %s", folderPath)
+
+		// Reload templates
+		return fetchTemplates()()
+	}
+}
+
+func createTemplate(parentPath, templateName string) tea.Cmd {
+	return func() tea.Msg {
+		logger.Printf("Creating new template '%s' from basic template in '%s'", templateName, parentPath)
+
+		templatesDir, err := templates.GetTemplatesDir()
+		if err != nil {
+			logger.Printf("Error getting templates directory: %v", err)
+			return errMsg{err: err}
+		}
+
+		// Load the basic template as source
+		basicTemplatePath := filepath.Join(templatesDir, "basic.yaml")
+		data, err := os.ReadFile(basicTemplatePath)
+		if err != nil {
+			logger.Printf("Error reading basic template: %v", err)
+			return errMsg{err: fmt.Errorf("failed to read basic template: %w", err)}
+		}
+
+		// Build destination path
+		destName := templateName
+		if !strings.HasSuffix(destName, ".yaml") && !strings.HasSuffix(destName, ".yml") {
+			destName += ".yaml"
+		}
+
+		var destPath string
+		if parentPath != "" {
+			destPath = filepath.Join(templatesDir, parentPath, destName)
+		} else {
+			destPath = filepath.Join(templatesDir, destName)
+		}
+
+		// Write to destination
+		err = os.WriteFile(destPath, data, 0644)
+		if err != nil {
+			logger.Printf("Error writing new template: %v", err)
+			return errMsg{err: fmt.Errorf("failed to create template: %w", err)}
+		}
+
+		logger.Printf("Successfully created template: %s", destPath)
+
+		// Reload templates
+		return fetchTemplates()()
 	}
 }
