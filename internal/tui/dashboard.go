@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/casey/azure-boards-cli/internal/api"
 	"github.com/casey/azure-boards-cli/internal/templates"
@@ -19,6 +20,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/workitemtracking"
+	"gopkg.in/yaml.v3"
 )
 
 var (
@@ -171,8 +173,18 @@ type Model struct {
 	inputMode        bool        // True when showing an input prompt
 	inputPrompt      string      // The prompt message
 	inputField       textinput.Model
-	inputAction      string      // What action to perform with the input (copy-template, create-folder)
+	inputAction      string      // What action to perform with the input (copy-template, create-folder, etc)
 	inputContext     interface{} // Context data for the input action
+
+	// Confirmation mode for destructive operations
+	confirmationMode   bool   // True when showing a confirmation dialog
+	confirmationPrompt string // The confirmation message
+	confirmationAction string // What action to confirm (delete-work-item, etc)
+	confirmationContext interface{} // Context for confirmation action
+
+	// Notification system
+	notification        string // Notification message to display
+	notificationIsError bool   // True if notification is an error (red), false for success (green)
 }
 
 // relationshipInfo stores formatted relationship data for a work item
@@ -526,7 +538,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
-		// Handle input mode first
+		// Handle confirmation mode first
+		if m.confirmationMode {
+			switch msg.String() {
+			case "y", "Y":
+				// Confirm the action
+				m.confirmationMode = false
+				return m, m.handleConfirmation(true)
+			case "n", "N", "esc":
+				// Cancel the action
+				m.confirmationMode = false
+				return m, nil
+			}
+			return m, nil
+		}
+
+		// Handle input mode
 		if m.inputMode {
 			switch msg.Type {
 			case tea.KeyEnter:
@@ -769,6 +796,47 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, textinput.Blink
 		}
 
+		// Handle Delete key for work items (d)
+		if msg.String() == "d" && m.currentTab == 1 && !m.inputMode && !m.confirmationMode {
+			selectedItem := m.list.SelectedItem()
+			if item, ok := selectedItem.(workItemItem); ok {
+				m.confirmationMode = true
+				m.confirmationPrompt = fmt.Sprintf("Delete work item #%d: %s?", item.ID, item.Title)
+				m.confirmationAction = "delete-work-item"
+				m.confirmationContext = item.ID
+				return m, nil
+			}
+		}
+
+		// Handle Create template from work item (n)
+		if msg.String() == "n" && m.currentTab == 1 && !m.inputMode && !m.confirmationMode {
+			selectedItem := m.list.SelectedItem()
+			if item, ok := selectedItem.(workItemItem); ok {
+				m.inputMode = true
+				m.inputPrompt = "Save work item as template (enter name):"
+				m.inputAction = "save-as-template"
+				m.inputContext = item.workItem
+				m.inputField.SetValue("")
+				m.inputField.Focus()
+				return m, textinput.Blink
+			}
+		}
+
+		// Handle Update key for work items (u)
+		if msg.String() == "u" && m.currentTab == 1 && !m.inputMode && !m.confirmationMode {
+			selectedItem := m.list.SelectedItem()
+			if item, ok := selectedItem.(workItemItem); ok {
+				// For now, let's allow updating the title
+				m.inputMode = true
+				m.inputPrompt = fmt.Sprintf("Update title for #%d:", item.ID)
+				m.inputAction = "update-work-item-title"
+				m.inputContext = item.ID
+				m.inputField.SetValue(item.Title)
+				m.inputField.Focus()
+				return m, textinput.Blink
+			}
+		}
+
 		// Handle back
 		if key.Matches(msg, m.keys.Back) && m.showDetails {
 			m.showDetails = false
@@ -831,6 +899,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case errMsg:
 		m.loading = false
 		m.err = msg.err
+
+	case successMsg:
+		logger.Printf("SUCCESS NOTIFICATION: %s", msg.message)
+		m.notification = msg.message
+		m.notificationIsError = false
+		return m, clearNotificationAfterDelay()
+
+	case errorNotificationMsg:
+		logger.Printf("ERROR NOTIFICATION: %s", msg.message)
+		m.notification = msg.message
+		m.notificationIsError = true
+		return m, clearNotificationAfterDelay()
+
+	case clearNotificationMsg:
+		logger.Printf("CLEARING NOTIFICATION")
+		m.notification = ""
+		m.notificationIsError = false
 	}
 
 	// Update appropriate list based on current tab
@@ -926,6 +1011,32 @@ func (m Model) handleInputSubmit(value string) tea.Cmd {
 			parentPath = p
 		}
 		return createTemplate(parentPath, value)
+	case "save-as-template":
+		// Save work item as template
+		if wi, ok := m.inputContext.(workitemtracking.WorkItem); ok {
+			return saveWorkItemAsTemplate(m.client, wi, value)
+		}
+	case "update-work-item-title":
+		// Update work item title
+		if id, ok := m.inputContext.(int); ok {
+			return updateWorkItemTitle(m.client, id, value)
+		}
+	}
+
+	return nil
+}
+
+// handleConfirmation processes confirmation dialogs
+func (m Model) handleConfirmation(confirmed bool) tea.Cmd {
+	if !confirmed {
+		return nil
+	}
+
+	switch m.confirmationAction {
+	case "delete-work-item":
+		if id, ok := m.confirmationContext.(int); ok {
+			return deleteWorkItem(m.client, id)
+		}
 	}
 
 	return nil
@@ -1017,76 +1128,75 @@ func (m Model) View() string {
 	switch m.currentTab {
 	case 0: // Queries tab
 		if m.loadingQueries {
-			return lipgloss.JoinVertical(
-				lipgloss.Left,
-				m.renderHeader(),
-				m.renderTabBar(),
-				"Loading queries...",
-				m.renderFooter(),
-			)
+			parts := []string{m.renderHeader(), m.renderTabBar(), "Loading queries..."}
+			if m.notification != "" {
+				logger.Printf("RENDERING NOTIFICATION: '%s' (isError: %v)", m.notification, m.notificationIsError)
+				parts = append(parts, m.renderNotification())
+			}
+			parts = append(parts, m.renderFooter())
+			return lipgloss.JoinVertical(lipgloss.Left, parts...)
 		}
-		return lipgloss.JoinVertical(
-			lipgloss.Left,
-			m.renderHeader(),
-			m.renderTabBar(),
-			m.queryList.View(),
-			m.renderFooter(),
-		)
+		parts := []string{m.renderHeader(), m.renderTabBar(), m.queryList.View()}
+		if m.notification != "" {
+			logger.Printf("RENDERING NOTIFICATION: '%s' (isError: %v)", m.notification, m.notificationIsError)
+			parts = append(parts, m.renderNotification())
+		}
+		parts = append(parts, m.renderFooter())
+		return lipgloss.JoinVertical(lipgloss.Left, parts...)
 	case 1: // Work Items tab
+		// Show confirmation dialog if in confirmation mode
+		if m.confirmationMode {
+			parts := []string{m.renderHeader(), m.renderTabBar(), m.list.View(), "", m.renderConfirmation()}
+			if m.notification != "" {
+				logger.Printf("RENDERING NOTIFICATION: '%s' (isError: %v)", m.notification, m.notificationIsError)
+				parts = append(parts, m.renderNotification())
+			}
+			parts = append(parts, m.renderFooter())
+			return lipgloss.JoinVertical(lipgloss.Left, parts...)
+		}
+		// Show input dialog if in input mode
+		if m.inputMode {
+			parts := []string{m.renderHeader(), m.renderTabBar(), m.list.View(), "", m.renderInputPrompt()}
+			if m.notification != "" {
+				logger.Printf("RENDERING NOTIFICATION: '%s' (isError: %v)", m.notification, m.notificationIsError)
+				parts = append(parts, m.renderNotification())
+			}
+			parts = append(parts, m.renderFooter())
+			return lipgloss.JoinVertical(lipgloss.Left, parts...)
+		}
+		// Show details view if selected
 		if m.showDetails {
-			return lipgloss.JoinVertical(
-				lipgloss.Left,
-				m.renderHeader(),
-				m.renderTabBar(),
-				m.list.View(),
-				m.renderDetailsHeader(),
+			parts := []string{m.renderHeader(), m.renderTabBar(), m.list.View(), m.renderDetailsHeader(),
 				lipgloss.NewStyle().
 					Border(lipgloss.RoundedBorder()).
 					BorderForeground(lipgloss.Color("62")).
 					Padding(1).
-					Render(m.viewport.View()),
-				m.renderFooter(),
-			)
+					Render(m.viewport.View())}
+			if m.notification != "" {
+				logger.Printf("RENDERING NOTIFICATION: '%s' (isError: %v)", m.notification, m.notificationIsError)
+				parts = append(parts, m.renderNotification())
+			}
+			parts = append(parts, m.renderFooter())
+			return lipgloss.JoinVertical(lipgloss.Left, parts...)
 		}
-		return lipgloss.JoinVertical(
-			lipgloss.Left,
-			m.renderHeader(),
-			m.renderTabBar(),
-			m.list.View(),
-			m.renderFooter(),
-		)
+		// Show normal list view
+		parts := []string{m.renderHeader(), m.renderTabBar(), m.list.View()}
+		if m.notification != "" {
+			logger.Printf("RENDERING NOTIFICATION: '%s' (isError: %v)", m.notification, m.notificationIsError)
+			parts = append(parts, m.renderNotification())
+		}
+		parts = append(parts, m.renderFooter())
+		return lipgloss.JoinVertical(lipgloss.Left, parts...)
 	case 2: // Templates tab
 		if m.loadingTemplates {
-			return lipgloss.JoinVertical(
-				lipgloss.Left,
-				m.renderHeader(),
-				m.renderTabBar(),
-				"Loading templates...",
-				m.renderFooter(),
-			)
+			parts := []string{m.renderHeader(), m.renderTabBar(), "Loading templates..."}
+			if m.notification != "" {
+				logger.Printf("RENDERING NOTIFICATION: '%s' (isError: %v)", m.notification, m.notificationIsError)
+				parts = append(parts, m.renderNotification())
+			}
+			parts = append(parts, m.renderFooter())
+			return lipgloss.JoinVertical(lipgloss.Left, parts...)
 		}
-		if m.inputMode {
-			// Show input prompt overlay
-			splitView := lipgloss.JoinHorizontal(
-				lipgloss.Top,
-				m.templateList.View(),
-				lipgloss.NewStyle().
-					Border(lipgloss.RoundedBorder()).
-					BorderForeground(lipgloss.Color("62")).
-					Padding(1).
-					Render(m.templatePreview.View()),
-			)
-			return lipgloss.JoinVertical(
-				lipgloss.Left,
-				m.renderHeader(),
-				m.renderTabBar(),
-				splitView,
-				"",
-				m.renderInputPrompt(),
-				m.renderFooter(),
-			)
-		}
-		// Split view: list on left, preview on right
 		splitView := lipgloss.JoinHorizontal(
 			lipgloss.Top,
 			m.templateList.View(),
@@ -1096,29 +1206,39 @@ func (m Model) View() string {
 				Padding(1).
 				Render(m.templatePreview.View()),
 		)
-		return lipgloss.JoinVertical(
-			lipgloss.Left,
-			m.renderHeader(),
-			m.renderTabBar(),
-			splitView,
-			m.renderFooter(),
-		)
+		if m.inputMode {
+			parts := []string{m.renderHeader(), m.renderTabBar(), splitView, "", m.renderInputPrompt()}
+			if m.notification != "" {
+				logger.Printf("RENDERING NOTIFICATION: '%s' (isError: %v)", m.notification, m.notificationIsError)
+				parts = append(parts, m.renderNotification())
+			}
+			parts = append(parts, m.renderFooter())
+			return lipgloss.JoinVertical(lipgloss.Left, parts...)
+		}
+		// Normal split view
+		parts := []string{m.renderHeader(), m.renderTabBar(), splitView}
+		if m.notification != "" {
+			logger.Printf("RENDERING NOTIFICATION: '%s' (isError: %v)", m.notification, m.notificationIsError)
+			parts = append(parts, m.renderNotification())
+		}
+		parts = append(parts, m.renderFooter())
+		return lipgloss.JoinVertical(lipgloss.Left, parts...)
 	case 3: // Pipelines tab
-		return lipgloss.JoinVertical(
-			lipgloss.Left,
-			m.renderHeader(),
-			m.renderTabBar(),
-			"Pipelines tab - Coming soon!",
-			m.renderFooter(),
-		)
+		parts := []string{m.renderHeader(), m.renderTabBar()}
+		if m.notification != "" {
+			logger.Printf("RENDERING NOTIFICATION: '%s' (isError: %v)", m.notification, m.notificationIsError)
+			parts = append(parts, m.renderNotification())
+		}
+		parts = append(parts, "Pipelines tab - Coming soon!", m.renderFooter())
+		return lipgloss.JoinVertical(lipgloss.Left, parts...)
 	case 4: // Agents tab
-		return lipgloss.JoinVertical(
-			lipgloss.Left,
-			m.renderHeader(),
-			m.renderTabBar(),
-			"Agents tab - Coming soon!",
-			m.renderFooter(),
-		)
+		parts := []string{m.renderHeader(), m.renderTabBar()}
+		if m.notification != "" {
+			logger.Printf("RENDERING NOTIFICATION: '%s' (isError: %v)", m.notification, m.notificationIsError)
+			parts = append(parts, m.renderNotification())
+		}
+		parts = append(parts, "Agents tab - Coming soon!", m.renderFooter())
+		return lipgloss.JoinVertical(lipgloss.Left, parts...)
 	}
 
 	return "Unknown tab"
@@ -1200,6 +1320,53 @@ func (m Model) renderInputPrompt() string {
 		Render(content)
 }
 
+func (m Model) renderConfirmation() string {
+	prompt := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("9")).
+		Bold(true).
+		Render(m.confirmationPrompt)
+
+	help := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("8")).
+		Render("  (y: yes • n/esc: no)")
+
+	content := fmt.Sprintf("%s\n%s", prompt, help)
+
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("9")).
+		Padding(1).
+		Width(m.width - 4).
+		Render(content)
+}
+
+func (m Model) renderNotification() string {
+	if m.notification == "" {
+		return ""
+	}
+
+	var color string
+	var icon string
+	if m.notificationIsError {
+		color = "9"  // Red
+		icon = "✗"
+	} else {
+		color = "2"  // Green
+		icon = "✓"
+	}
+
+	message := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(color)).
+		Bold(true).
+		Render(fmt.Sprintf("%s %s", icon, m.notification))
+
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(color)).
+		Padding(0, 1).
+		Render(message)
+}
+
 func (m Model) renderFooter() string {
 	var helpText string
 
@@ -1208,7 +1375,7 @@ func (m Model) renderFooter() string {
 	case 0: // Queries
 		helpText = "↑/↓: navigate • enter: toggle folder/execute query • tab: switch tabs • r: refresh • q: quit"
 	case 1: // Work Items
-		helpText = "↑/↓: navigate • enter: details • tab: switch tabs • r: refresh • q: quit"
+		helpText = "↑/↓: navigate • enter: details • n: save as template • u: update • d: delete • tab: switch tabs • r: refresh • q: quit"
 	case 2: // Templates
 		helpText = "↑/↓: navigate • enter: create • e: edit • c: copy • n: new template • f: new folder • tab: switch tabs • q: quit"
 	case 3: // Pipelines
@@ -1485,7 +1652,23 @@ type errMsg struct {
 	err error
 }
 
+type successMsg struct {
+	message string
+}
+
+type errorNotificationMsg struct {
+	message string
+}
+
+type clearNotificationMsg struct{}
+
 // Commands
+
+func clearNotificationAfterDelay() tea.Cmd {
+	return tea.Tick(3*time.Second, func(time.Time) tea.Msg {
+		return clearNotificationMsg{}
+	})
+}
 
 func loadRelationships(client *api.Client, wi workitemtracking.WorkItem) tea.Cmd {
 	return func() tea.Msg {
@@ -1653,7 +1836,7 @@ func createFromTemplate(client *api.Client, template *templates.Template, templa
 	return func() tea.Msg {
 		if template == nil {
 			logger.Printf("Error: template is nil")
-			return errMsg{err: fmt.Errorf("template is nil")}
+			return errorNotificationMsg{message: "Template is nil"}
 		}
 
 		logger.Printf("Creating work item from template: %s (path: %s)", template.Name, templatePath)
@@ -1668,7 +1851,7 @@ func createFromTemplate(client *api.Client, template *templates.Template, templa
 
 		// Ensure we have required fields
 		if fields["System.Title"] == nil || fields["System.Title"] == "" {
-			return errMsg{err: fmt.Errorf("template missing required field: System.Title")}
+			return errorNotificationMsg{message: "Template missing required field: System.Title"}
 		}
 
 		// Determine parent ID from template
@@ -1681,7 +1864,7 @@ func createFromTemplate(client *api.Client, template *templates.Template, templa
 		workItemPtr, err := client.CreateWorkItem(template.Type, fields, parentID)
 		if err != nil {
 			logger.Printf("Error creating work item: %v", err)
-			return errMsg{err: fmt.Errorf("failed to create work item: %w", err)}
+			return errorNotificationMsg{message: fmt.Sprintf("Failed to create work item: %v", err)}
 		}
 
 		var workItemID int
@@ -1690,6 +1873,9 @@ func createFromTemplate(client *api.Client, template *templates.Template, templa
 		}
 
 		logger.Printf("Successfully created work item #%d from template", workItemID)
+
+		// Count child work items for message
+		childCount := 0
 
 		// Create child work items if specified in template
 		if template.Relations != nil && len(template.Relations.Children) > 0 {
@@ -1728,13 +1914,25 @@ func createFromTemplate(client *api.Client, template *templates.Template, templa
 				var childID int
 				if childWI != nil && childWI.Id != nil {
 					childID = *childWI.Id
+					childCount++
 					logger.Printf("Created child work item #%d: %s", childID, child.Title)
 				}
 			}
 		}
 
-		// Refresh the work items list
-		return tea.Msg(nil) // TODO: Return a success message or refresh command
+		// Create success message
+		var message string
+		if childCount > 0 {
+			message = fmt.Sprintf("Created work item #%d with %d children", workItemID, childCount)
+		} else {
+			message = fmt.Sprintf("Created work item #%d", workItemID)
+		}
+
+		// Return success notification and refresh work items
+		return tea.Batch(
+			func() tea.Msg { return successMsg{message: message} },
+			fetchWorkItems(client),
+		)()
 	}
 }
 
@@ -1822,8 +2020,11 @@ func copyTemplate(sourceItem templateListItem, newName string) tea.Cmd {
 
 		logger.Printf("Successfully copied template to: %s", destPath)
 
-		// Reload templates
-		return fetchTemplates()()
+		// Show success notification and reload templates
+		return tea.Batch(
+			func() tea.Msg { return successMsg{message: fmt.Sprintf("Copied template to '%s'", newName)} },
+			fetchTemplates(),
+		)()
 	}
 }
 
@@ -1854,8 +2055,11 @@ func createFolder(parentPath, folderName string) tea.Cmd {
 
 		logger.Printf("Successfully created folder: %s", folderPath)
 
-		// Reload templates
-		return fetchTemplates()()
+		// Show success notification and reload templates
+		return tea.Batch(
+			func() tea.Msg { return successMsg{message: fmt.Sprintf("Created folder '%s'", folderName)} },
+			fetchTemplates(),
+		)()
 	}
 }
 
@@ -1899,7 +2103,296 @@ func createTemplate(parentPath, templateName string) tea.Cmd {
 
 		logger.Printf("Successfully created template: %s", destPath)
 
-		// Reload templates
-		return fetchTemplates()()
+		// Show success notification and reload templates
+		return tea.Batch(
+			func() tea.Msg { return successMsg{message: fmt.Sprintf("Created template '%s'", templateName)} },
+			fetchTemplates(),
+		)()
+	}
+}
+
+// saveWorkItemAsTemplate creates a template from a work item
+func saveWorkItemAsTemplate(client *api.Client, wi workitemtracking.WorkItem, templateName string) tea.Cmd {
+	return func() tea.Msg {
+		logger.Printf("Saving work item as template '%s'", templateName)
+
+		templatesDir, err := templates.GetTemplatesDir()
+		if err != nil {
+			logger.Printf("Error getting templates directory: %v", err)
+			return errorNotificationMsg{message: fmt.Sprintf("Failed to get templates directory: %v", err)}
+		}
+
+		// Extract work item type
+		workItemType := ""
+		if wi.Fields != nil {
+			if typeVal, ok := (*wi.Fields)["System.WorkItemType"].(string); ok {
+				workItemType = typeVal
+			}
+		}
+
+		if workItemType == "" {
+			return errorNotificationMsg{message: "Could not determine work item type"}
+		}
+
+		// Build template fields from work item
+		templateFields := make(map[string]interface{})
+
+		// Common fields to include in template
+		fieldsToInclude := []string{
+			"System.Title",
+			"System.Description",
+			"System.Tags",
+			"System.AreaPath",
+			"System.IterationPath",
+			"Microsoft.VSTS.Common.Priority",
+		}
+
+		if wi.Fields != nil {
+			for _, fieldName := range fieldsToInclude {
+				if val, ok := (*wi.Fields)[fieldName]; ok && val != nil {
+					// Skip empty values
+					if strVal, ok := val.(string); ok && strVal == "" {
+						continue
+					}
+					templateFields[fieldName] = val
+				}
+			}
+
+			// Include any custom fields
+			for fieldName, val := range *wi.Fields {
+				if strings.HasPrefix(fieldName, "Custom.") && val != nil {
+					templateFields[fieldName] = val
+				}
+			}
+		}
+
+		// Extract relationships (children only - we don't store parent ID as it's specific to source)
+		var relations *templates.Relations
+		var childWorkItems []templates.ChildWorkItem
+
+		if wi.Relations != nil && len(*wi.Relations) > 0 {
+			for _, relation := range *wi.Relations {
+				// Look for child relationships (System.LinkTypes.Hierarchy-Forward)
+				if relation.Rel != nil && *relation.Rel == "System.LinkTypes.Hierarchy-Forward" {
+					// Extract child work item ID from URL
+					if relation.Url != nil {
+						childID := extractWorkItemIDFromURL(*relation.Url)
+						if childID > 0 {
+							logger.Printf("Fetching child work item #%d", childID)
+							childWI, err := client.GetWorkItem(childID)
+							if err != nil {
+								logger.Printf("Warning: Could not fetch child work item #%d: %v", childID, err)
+								// Add placeholder if fetch fails
+								childWorkItems = append(childWorkItems, templates.ChildWorkItem{
+									Type:        "Task",
+									Title:       fmt.Sprintf("Child task (from work item #%d)", childID),
+									Description: fmt.Sprintf("TODO: Edit this child task. Original ID: %d", childID),
+								})
+								continue
+							}
+
+							// Extract child work item details
+							childType := "Task"
+							if childWI.Fields != nil {
+								if typeVal, ok := (*childWI.Fields)["System.WorkItemType"].(string); ok {
+									childType = typeVal
+								}
+							}
+
+							childTitle := fmt.Sprintf("Child task #%d", childID)
+							childDescription := ""
+							childAssignedTo := ""
+
+							if childWI.Fields != nil {
+								if title, ok := (*childWI.Fields)["System.Title"].(string); ok {
+									childTitle = title
+								}
+								if desc, ok := (*childWI.Fields)["System.Description"].(string); ok {
+									childDescription = desc
+								}
+								if assigned, ok := (*childWI.Fields)["System.AssignedTo"]; ok {
+									// Handle identity field
+									if identityMap, ok := assigned.(map[string]interface{}); ok {
+										if displayName, ok := identityMap["displayName"].(string); ok {
+											childAssignedTo = displayName
+										}
+									}
+								}
+							}
+
+							childWorkItems = append(childWorkItems, templates.ChildWorkItem{
+								Type:        childType,
+								Title:       childTitle,
+								Description: childDescription,
+								AssignedTo:  childAssignedTo,
+							})
+						}
+					}
+				}
+			}
+
+			if len(childWorkItems) > 0 {
+				relations = &templates.Relations{
+					Children: childWorkItems,
+				}
+			}
+		}
+
+		// Create template struct
+		template := templates.Template{
+			Name:        templateName,
+			Description: fmt.Sprintf("Generated from work item #%d", *wi.Id),
+			Type:        workItemType,
+			Fields:      templateFields,
+			Relations:   relations,
+		}
+
+		// Build template file path
+		destName := templateName
+		if !strings.HasSuffix(destName, ".yaml") && !strings.HasSuffix(destName, ".yml") {
+			destName += ".yaml"
+		}
+		destPath := filepath.Join(templatesDir, destName)
+
+		// Marshal template to YAML
+		data, err := yaml.Marshal(template)
+		if err != nil {
+			logger.Printf("Error marshaling template: %v", err)
+			return errorNotificationMsg{message: fmt.Sprintf("Failed to marshal template: %v", err)}
+		}
+
+		// Write template file
+		err = os.WriteFile(destPath, data, 0644)
+		if err != nil {
+			logger.Printf("Error writing template file: %v", err)
+			return errorNotificationMsg{message: fmt.Sprintf("Failed to write template: %v", err)}
+		}
+
+		logger.Printf("Successfully saved template: %s", destPath)
+
+		// Show success notification and reload templates
+		return tea.Batch(
+			func() tea.Msg { return successMsg{message: fmt.Sprintf("Saved template '%s'", templateName)} },
+			fetchTemplates(),
+		)()
+	}
+}
+
+// deleteWorkItem deletes a work item by ID
+func deleteWorkItem(client *api.Client, id int) tea.Cmd {
+	return func() tea.Msg {
+		logger.Printf("Deleting work item #%d", id)
+
+		err := client.DeleteWorkItem(id)
+		if err != nil {
+			logger.Printf("Error deleting work item: %v", err)
+			return errorNotificationMsg{message: fmt.Sprintf("Failed to delete work item: %v", err)}
+		}
+
+		logger.Printf("Successfully deleted work item #%d", id)
+
+		// Show success notification
+		// Note: We need to refresh AND show notification, so we'll return batch
+		return tea.Batch(
+			func() tea.Msg { return successMsg{message: fmt.Sprintf("Deleted work item #%d", id)} },
+			fetchWorkItems(client),
+		)()
+	}
+}
+
+// createWorkItemFromTemplate creates a new work item from a template
+func createWorkItemFromTemplate(client *api.Client, templateName string) tea.Cmd {
+	return func() tea.Msg {
+		logger.Printf("Creating work item from template '%s'", templateName)
+
+		// Load template
+		template, err := templates.Load(templateName)
+		if err != nil {
+			logger.Printf("Error loading template: %v", err)
+			return errMsg{err: fmt.Errorf("failed to load template: %w", err)}
+		}
+
+		// Build fields map from template
+		fields := make(map[string]interface{})
+		for k, v := range template.Fields {
+			fields[k] = v
+		}
+
+		// Validate required fields
+		if fields["System.Title"] == nil || fields["System.Title"] == "" {
+			return errMsg{err: fmt.Errorf("template missing required field: System.Title")}
+		}
+
+		// Get parent ID if specified
+		parentID := 0
+		if template.Relations != nil && template.Relations.ParentID > 0 {
+			parentID = template.Relations.ParentID
+		}
+
+		// Create work item
+		workItem, err := client.CreateWorkItem(template.Type, fields, parentID)
+		if err != nil {
+			logger.Printf("Error creating work item: %v", err)
+			return errMsg{err: fmt.Errorf("failed to create work item: %w", err)}
+		}
+
+		logger.Printf("Successfully created work item #%d", *workItem.Id)
+
+		// Create child work items if specified
+		if template.Relations != nil && len(template.Relations.Children) > 0 && workItem.Id != nil {
+			for _, child := range template.Relations.Children {
+				childFields := make(map[string]interface{})
+				childType := child.Type
+				if childType == "" {
+					childType = "Task"
+				}
+
+				childFields["System.Title"] = child.Title
+				if child.Description != "" {
+					childFields["System.Description"] = child.Description
+				}
+				if child.AssignedTo != "" && child.AssignedTo != "@me" {
+					childFields["System.AssignedTo"] = child.AssignedTo
+				}
+
+				// Add any additional fields
+				for k, v := range child.Fields {
+					childFields[k] = v
+				}
+
+				_, err := client.CreateWorkItem(childType, childFields, *workItem.Id)
+				if err != nil {
+					logger.Printf("Error creating child work item: %v", err)
+				}
+			}
+		}
+
+		// Refresh work items list
+		return fetchWorkItems(client)()
+	}
+}
+
+// updateWorkItemTitle updates the title of a work item
+func updateWorkItemTitle(client *api.Client, id int, newTitle string) tea.Cmd {
+	return func() tea.Msg {
+		logger.Printf("Updating work item #%d title to '%s'", id, newTitle)
+
+		fields := map[string]interface{}{
+			"System.Title": newTitle,
+		}
+
+		_, err := client.UpdateWorkItem(id, fields)
+		if err != nil {
+			logger.Printf("Error updating work item: %v", err)
+			return errorNotificationMsg{message: fmt.Sprintf("Failed to update work item: %v", err)}
+		}
+
+		logger.Printf("Successfully updated work item #%d", id)
+
+		// Show success notification and refresh
+		return tea.Batch(
+			func() tea.Msg { return successMsg{message: fmt.Sprintf("Updated work item #%d", id)} },
+			fetchWorkItems(client),
+		)()
 	}
 }
