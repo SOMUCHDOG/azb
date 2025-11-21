@@ -21,6 +21,16 @@ type Tab interface {
 
 	// SetSize updates the tab's dimensions
 	SetSize(width, height int)
+
+	// GetHelpEntries returns the list of actions available for this tab
+	// Used by the help system to display context-aware help
+	GetHelpEntries() []HelpEntry
+}
+
+// HelpEntry describes a single action for help display
+type HelpEntry struct {
+	Action      string // Action identifier (e.g., "download", "edit")
+	Description string // Human-readable description
 }
 
 // TabBase provides common functionality for tabs

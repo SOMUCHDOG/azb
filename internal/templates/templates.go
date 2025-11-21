@@ -104,6 +104,12 @@ func Save(template *Template) error {
 		return err
 	}
 
+	// Create parent directories if they don't exist
+	parentDir := filepath.Dir(path)
+	if err := os.MkdirAll(parentDir, 0755); err != nil {
+		return fmt.Errorf("failed to create parent directories: %w", err)
+	}
+
 	data, err := yaml.Marshal(template)
 	if err != nil {
 		return fmt.Errorf("failed to marshal template: %w", err)
@@ -184,6 +190,57 @@ func Exists(name string) (bool, error) {
 	}
 
 	return true, nil
+}
+
+// Rename renames a template or directory
+func Rename(oldName, newName string) error {
+	templatesDir, err := GetTemplatesDir()
+	if err != nil {
+		return err
+	}
+
+	// Build old path (file or directory)
+	oldPath := filepath.Join(templatesDir, oldName)
+
+	// Check if old path exists
+	oldInfo, err := os.Stat(oldPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("template or folder '%s' not found", oldName)
+		}
+		return fmt.Errorf("failed to access '%s': %w", oldName, err)
+	}
+
+	// Build new path
+	var newPath string
+	if oldInfo.IsDir() {
+		// Renaming directory
+		newPath = filepath.Join(templatesDir, newName)
+	} else {
+		// Renaming file - ensure .yaml extension
+		if !strings.HasSuffix(newName, ".yaml") && !strings.HasSuffix(newName, ".yml") {
+			newName = newName + ".yaml"
+		}
+		newPath = filepath.Join(templatesDir, newName)
+	}
+
+	// Create parent directories if newName contains a path
+	newParentDir := filepath.Dir(newPath)
+	if err := os.MkdirAll(newParentDir, 0755); err != nil {
+		return fmt.Errorf("failed to create parent directories: %w", err)
+	}
+
+	// Check if new path already exists
+	if _, err := os.Stat(newPath); err == nil {
+		return fmt.Errorf("'%s' already exists", newName)
+	}
+
+	// Rename
+	if err := os.Rename(oldPath, newPath); err != nil {
+		return fmt.Errorf("failed to rename: %w", err)
+	}
+
+	return nil
 }
 
 // ListTree recursively lists all templates in a tree structure

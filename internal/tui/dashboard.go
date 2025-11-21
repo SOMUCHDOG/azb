@@ -5,10 +5,10 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/casey/azure-boards-cli/internal/api"
-	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -52,22 +52,33 @@ type Dashboard struct {
 	inputPrompt  *InputPrompt
 	confirmation *ConfirmationDialog
 	err          error
+
+	// Controllers
+	keybinds *KeybindController
+	actions  *ActionController
+	help     *HelpController
 }
 
 // NewDashboard creates a new dashboard
 func NewDashboard(client *api.Client) *Dashboard {
+	// Initialize keybind controller first
+	keybinds := NewKeybindController()
+
 	dashboard := &Dashboard{
 		client:       client,
 		notification: NewNotification("", false),
 		inputPrompt:  NewInputPrompt(),
 		confirmation: NewConfirmationDialog(),
+		keybinds:     keybinds,
+		actions:      NewActionController(keybinds),
+		help:         NewHelpController(keybinds),
 	}
 
 	// Initialize tabs
 	dashboard.tabs = []Tab{
 		NewQueriesTab(client, 0, 0),
 		NewWorkItemsTab(client, 0, 0),
-		NewTemplatesTab(0, 0),
+		NewTemplatesTab(client, 0, 0),
 		NewPipelinesTab(0, 0),
 		NewAgentsTab(0, 0),
 	}
@@ -118,9 +129,42 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.Type {
 			case tea.KeyEnter:
 				value := d.inputPrompt.Value()
+				action := d.inputPrompt.Action
+				context := d.inputPrompt.Context
 				d.inputPrompt.Hide()
-				// TODO: Handle input submission based on action
-				logger.Printf("Input submitted: %s (action: %s)", value, d.inputPrompt.Action)
+
+				// Handle action based on type
+				if action == "rename_template" {
+					if oldPath, ok := context.(string); ok {
+						logger.Printf("Renaming template '%s' to '%s'", oldPath, value)
+						return d, renameTemplate(oldPath, value)
+					}
+				} else if action == "copy_template" {
+					if oldPath, ok := context.(string); ok {
+						logger.Printf("Copying template '%s' to '%s'", oldPath, value)
+						return d, copyTemplate(oldPath, value)
+					}
+				} else if action == "new_template" {
+					logger.Printf("Creating new template: %s", value)
+					return d, tea.Batch(
+						createNewTemplate(value),
+						func() tea.Msg {
+							// Refresh templates after a brief delay
+							return RefreshTemplatesMsg{}
+						},
+					)
+				} else if action == "new_folder" {
+					logger.Printf("Creating new folder: %s", value)
+					return d, tea.Batch(
+						createNewFolder(value),
+						func() tea.Msg {
+							// Refresh templates after a brief delay
+							return RefreshTemplatesMsg{}
+						},
+					)
+				}
+
+				logger.Printf("Input submitted: %s (action: %s)", value, action)
 				return d, nil
 			case tea.KeyEsc:
 				d.inputPrompt.Hide()
@@ -135,32 +179,138 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if d.confirmation.Active {
 			switch msg.String() {
 			case "y", "Y":
+				action := d.confirmation.Action
+				context := d.confirmation.Context
 				d.confirmation.Hide()
-				// TODO: Handle confirmation based on action
-				logger.Printf("Confirmed action: %s", d.confirmation.Action)
+
+				// Handle confirmed action
+				if action == "delete_work_item" {
+					if ctx, ok := context.(ConfirmDeleteWorkItemMsg); ok {
+						logger.Printf("Executing delete for work item #%d with %d children", ctx.WorkItemID, len(ctx.ChildIDs))
+						return d, deleteWorkItemWithChildren(d.client, ctx.WorkItemID, ctx.ChildIDs)
+					}
+				} else if action == "delete_template" {
+					if ctx, ok := context.(ConfirmDeleteTemplateMsg); ok {
+						logger.Printf("Executing delete for template: %s", ctx.Path)
+						return d, deleteTemplate(ctx.Path, ctx.IsDir)
+					}
+				}
+
+				logger.Printf("Confirmed action: %s", action)
 				return d, nil
 			case "n", "N", "esc":
 				d.confirmation.Hide()
+				logger.Printf("Cancelled action: %s", d.confirmation.Action)
 				return d, nil
 			}
 			return d, nil
 		}
 
+		// Handle help toggle (? key)
+		if d.keybinds.Matches(msg, "global", "help") {
+			if d.help.IsVisible() {
+				d.help.Hide()
+				logger.Printf("Help hidden")
+			} else {
+				currentTabName := d.tabs[d.currentTab].Name()
+				d.help.Show(currentTabName)
+				logger.Printf("Help shown for tab: %s", currentTabName)
+			}
+			return d, nil
+		}
+
+		// If help is visible, block all other input (except help toggle handled above)
+		if d.help.IsVisible() {
+			return d, nil
+		}
+
 		// Handle quit
-		if key.Matches(msg, key.NewBinding(key.WithKeys("q", "ctrl+c"))) {
+		if d.keybinds.Matches(msg, "global", "quit") {
 			return d, tea.Quit
 		}
 
 		// Handle tab switching
-		if msg.String() == "tab" {
+		if d.keybinds.Matches(msg, "global", "next_tab") {
 			d.currentTab = (d.currentTab + 1) % len(d.tabs)
 			logger.Printf("Switched to tab %d: %s", d.currentTab, d.tabs[d.currentTab].Name())
 			return d, nil
 		}
-		if msg.String() == "shift+tab" {
+		if d.keybinds.Matches(msg, "global", "prev_tab") {
 			d.currentTab = (d.currentTab - 1 + len(d.tabs)) % len(d.tabs)
 			logger.Printf("Switched to tab %d: %s", d.currentTab, d.tabs[d.currentTab].Name())
 			return d, nil
+		}
+
+		// Check if actions can be executed (not during filtering, etc.)
+		if d.actions.CanExecuteAction(d.tabs[d.currentTab]) {
+			// Handle Work Items tab actions
+			if d.tabs[d.currentTab].Name() == "Work Items" {
+				if workitemsTab, ok := d.tabs[d.currentTab].(*WorkItemsTab); ok {
+					// Download work item (w key)
+					if d.keybinds.Matches(msg, "workitems", "download") {
+						logger.Printf("Download action triggered")
+						return d, workitemsTab.handleDownloadAction()
+					}
+					// Edit work item (e key)
+					if d.keybinds.Matches(msg, "workitems", "edit") {
+						logger.Printf("Edit action triggered")
+						return d, workitemsTab.handleEditAction()
+					}
+					// Delete work item (d key)
+					if d.keybinds.Matches(msg, "workitems", "delete") {
+						logger.Printf("Delete action triggered")
+						return d, workitemsTab.handleDeleteAction()
+					}
+				}
+			}
+
+			// Handle Templates tab actions
+			if d.tabs[d.currentTab].Name() == "Templates" {
+				if templatesTab, ok := d.tabs[d.currentTab].(*TemplatesTab); ok {
+					// Edit template (e key)
+					if d.keybinds.Matches(msg, "templates", "edit") {
+						logger.Printf("Edit template action triggered")
+						return d, templatesTab.handleEditAction()
+					}
+					// Rename template (m key)
+					if d.keybinds.Matches(msg, "templates", "rename") {
+						logger.Printf("Rename action triggered")
+						if prompt := templatesTab.handleRenameAction(); prompt != nil {
+							d.inputPrompt = prompt
+						}
+						return d, nil
+					}
+					// Delete template (d key)
+					if d.keybinds.Matches(msg, "templates", "delete") {
+						logger.Printf("Delete template action triggered")
+						return d, templatesTab.handleDeleteAction()
+					}
+					// Copy template (c key)
+					if d.keybinds.Matches(msg, "templates", "copy") {
+						logger.Printf("Copy template action triggered")
+						if prompt := templatesTab.handleCopyAction(); prompt != nil {
+							d.inputPrompt = prompt
+						}
+						return d, nil
+					}
+					// New template (n key)
+					if d.keybinds.Matches(msg, "templates", "new_template") {
+						logger.Printf("New template action triggered")
+						if prompt := templatesTab.handleNewTemplateAction(); prompt != nil {
+							d.inputPrompt = prompt
+						}
+						return d, nil
+					}
+					// New folder (f key)
+					if d.keybinds.Matches(msg, "templates", "new_folder") {
+						logger.Printf("New folder action triggered")
+						if prompt := templatesTab.handleNewFolderAction(); prompt != nil {
+							d.inputPrompt = prompt
+						}
+						return d, nil
+					}
+				}
+			}
 		}
 
 		// Route message to active tab
@@ -184,7 +334,23 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return d, nil
 
-	case WorkItemsLoadedMsg, QueryExecutedMsg, WorkItemDeletedMsg:
+	case ConfirmDeleteWorkItemMsg:
+		// Show confirmation dialog for work item deletion
+		childCount := len(msg.ChildIDs)
+		childText := ""
+		if childCount > 0 {
+			childText = fmt.Sprintf(" and its %d child task(s)", childCount)
+		}
+
+		d.confirmation.Show(
+			fmt.Sprintf("Delete work item #%d: '%s'%s?", msg.WorkItemID, msg.Title, childText),
+			"delete_work_item",
+			msg, // Store context for when user confirms
+		)
+		logger.Printf("Showing delete confirmation for work item #%d with %d children", msg.WorkItemID, childCount)
+		return d, nil
+
+	case WorkItemsLoadedMsg, QueryExecutedMsg, WorkItemDeletedMsg, WorkItemCreatedMsg:
 		// Route work item messages to Work Items tab (index 1)
 		logger.Printf("Routing work item message to Work Items tab")
 		if len(d.tabs) > 1 {
@@ -192,6 +358,26 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			d.tabs[1] = tab
 			cmds = append(cmds, cmd)
 		}
+
+		// Show notification for created work item
+		if createdMsg, ok := msg.(WorkItemCreatedMsg); ok {
+			if createdMsg.Error == nil && createdMsg.WorkItem != nil {
+				workItemID := *createdMsg.WorkItem.Id
+				message := fmt.Sprintf("Created work item #%d", workItemID)
+
+				// Switch to Work Items tab (index 1)
+				d.currentTab = 1
+				logger.Printf("Switched to Work Items tab after creation")
+
+				cmds = append(cmds, func() tea.Msg {
+					return NotificationMsg{
+						Message: message,
+						IsError: false,
+					}
+				})
+			}
+		}
+
 		return d, tea.Batch(cmds...)
 
 	case QueriesLoadedMsg:
@@ -213,6 +399,197 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 		return d, tea.Batch(cmds...)
+
+	case TemplateRenamedMsg:
+		// Show notification and refresh templates
+		if msg.Error != nil {
+			logger.Printf("Failed to rename template: %v", msg.Error)
+			return d, func() tea.Msg {
+				return NotificationMsg{
+					Message: fmt.Sprintf("Failed to rename: %v", msg.Error),
+					IsError: true,
+				}
+			}
+		}
+
+		logger.Printf("Template renamed successfully")
+
+		// Show success notification
+		cmds = append(cmds, func() tea.Msg {
+			return NotificationMsg{
+				Message: fmt.Sprintf("Renamed to '%s'", msg.NewPath),
+				IsError: false,
+			}
+		})
+
+		// Refresh templates list
+		if len(d.tabs) > 2 {
+			if templatesTab, ok := d.tabs[2].(*TemplatesTab); ok {
+				cmds = append(cmds, templatesTab.FetchTemplates())
+			}
+		}
+
+		return d, tea.Batch(cmds...)
+
+	case ConfirmDeleteTemplateMsg:
+		// Show confirmation dialog for template deletion
+		d.confirmation.Show(
+			msg.Prompt,
+			"delete_template",
+			msg,
+		)
+		logger.Printf("Showing delete confirmation for template: %s", msg.Path)
+		return d, nil
+
+	case TemplateDeletedMsg:
+		// Show notification and refresh templates
+		if msg.Error != nil {
+			logger.Printf("Failed to delete template: %v", msg.Error)
+			return d, func() tea.Msg {
+				return NotificationMsg{
+					Message: fmt.Sprintf("Failed to delete: %v", msg.Error),
+					IsError: true,
+				}
+			}
+		}
+
+		logger.Printf("Template deleted successfully")
+
+		// Show success notification
+		cmds = append(cmds, func() tea.Msg {
+			return NotificationMsg{
+				Message: fmt.Sprintf("Deleted '%s'", msg.TemplatePath),
+				IsError: false,
+			}
+		})
+
+		// Refresh templates list
+		if len(d.tabs) > 2 {
+			if templatesTab, ok := d.tabs[2].(*TemplatesTab); ok {
+				cmds = append(cmds, templatesTab.FetchTemplates())
+			}
+		}
+
+		return d, tea.Batch(cmds...)
+
+	case TemplateCopiedMsg:
+		// Show notification and refresh templates
+		if msg.Error != nil {
+			logger.Printf("Failed to copy template: %v", msg.Error)
+			return d, func() tea.Msg {
+				return NotificationMsg{
+					Message: fmt.Sprintf("Failed to copy: %v", msg.Error),
+					IsError: true,
+				}
+			}
+		}
+
+		logger.Printf("Template copied successfully")
+
+		// Show success notification
+		cmds = append(cmds, func() tea.Msg {
+			return NotificationMsg{
+				Message: fmt.Sprintf("Copied to '%s'", msg.NewPath),
+				IsError: false,
+			}
+		})
+
+		// Refresh templates list
+		if len(d.tabs) > 2 {
+			if templatesTab, ok := d.tabs[2].(*TemplatesTab); ok {
+				cmds = append(cmds, templatesTab.FetchTemplates())
+			}
+		}
+
+		return d, tea.Batch(cmds...)
+
+	case TemplateFolderCreatedMsg:
+		// Refresh templates after folder creation (notification already shown)
+		if msg.Error == nil {
+			if len(d.tabs) > 2 {
+				if templatesTab, ok := d.tabs[2].(*TemplatesTab); ok {
+					return d, templatesTab.FetchTemplates()
+				}
+			}
+		}
+		return d, nil
+
+	case RefreshTemplatesMsg:
+		// Refresh templates list
+		logger.Printf("Refreshing templates list")
+		if len(d.tabs) > 2 {
+			if templatesTab, ok := d.tabs[2].(*TemplatesTab); ok {
+				return d, templatesTab.FetchTemplates()
+			}
+		}
+		return d, nil
+
+	case OpenEditorForTemplateMsg:
+		// Open editor to edit template file
+		logger.Printf("Opening editor for template: %s", msg.FilePath)
+
+		// Get editor from environment
+		editor := os.Getenv("EDITOR")
+		if editor == "" {
+			editor = "vi" // fallback to vi
+		}
+
+		// Create command to open editor
+		c := exec.Command(editor, msg.FilePath)
+
+		// Return tea.ExecProcess to suspend TUI and run editor
+		return d, tea.ExecProcess(c, func(err error) tea.Msg {
+			if err != nil {
+				logger.Printf("Editor error: %v", err)
+				return NotificationMsg{
+					Message: fmt.Sprintf("Editor error: %v", err),
+					IsError: true,
+				}
+			}
+			logger.Printf("Editor closed for template")
+			// Refresh templates list after edit
+			return RefreshTemplatesMsg{}
+		})
+
+	case OpenEditorMsg:
+		// Open editor to edit work item
+		logger.Printf("Opening editor for work item #%d at %s", msg.WorkItemID, msg.FilePath)
+
+		// Get editor from environment
+		editor := os.Getenv("EDITOR")
+		if editor == "" {
+			editor = "vi" // fallback to vi
+		}
+
+		// Create command to open editor
+		c := exec.Command(editor, msg.FilePath)
+
+		// Return tea.ExecProcess to suspend TUI and run editor
+		return d, tea.ExecProcess(c, func(err error) tea.Msg {
+			if err != nil {
+				logger.Printf("Editor error: %v", err)
+				return NotificationMsg{
+					Message: fmt.Sprintf("Editor error: %v", err),
+					IsError: true,
+				}
+			}
+			logger.Printf("Editor closed, processing edited work item #%d", msg.WorkItemID)
+			return ProcessEditedWorkItemMsg{
+				FilePath:   msg.FilePath,
+				WorkItemID: msg.WorkItemID,
+				Client:     msg.Client,
+			}
+		})
+
+	case ProcessEditedWorkItemMsg:
+		// Process the edited work item after editor closes
+		logger.Printf("Processing edited work item #%d", msg.WorkItemID)
+		return d, processEditedWorkItem(msg.FilePath, msg.WorkItemID, msg.Client)
+
+	case CreateWorkItemFromTemplateMsg:
+		// Create work item from template
+		logger.Printf("Creating work item from template: %s", msg.Template.Name)
+		return d, executeCreateWorkItemFromTemplate(d.client, msg.Template)
 
 	default:
 		// Route all other messages to the active tab
@@ -259,7 +636,14 @@ func (d *Dashboard) View() string {
 	// Add footer
 	parts = append(parts, RenderFooter(""))
 
-	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+	mainView := lipgloss.JoinVertical(lipgloss.Left, parts...)
+
+	// Render help overlay on top of everything if visible
+	if d.help.IsVisible() {
+		return d.help.View(d.width, d.height)
+	}
+
+	return mainView
 }
 
 // Run starts the dashboard TUI

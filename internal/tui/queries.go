@@ -272,3 +272,13 @@ type queryListItem struct {
 }
 
 func (i queryListItem) FilterValue() string { return i.Name }
+
+// GetHelpEntries returns the list of available actions for the Queries tab
+func (t *QueriesTab) GetHelpEntries() []HelpEntry {
+	return []HelpEntry{
+		{Action: "execute", Description: "Execute query or expand folder"},
+		{Action: "expand_all", Description: "Expand all folders"},
+		{Action: "collapse_all", Description: "Collapse all folders"},
+		{Action: "refresh", Description: "Refresh queries list"},
+	}
+}
