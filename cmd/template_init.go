@@ -32,7 +32,7 @@ func runTemplateInit(cmd *cobra.Command, args []string) error {
 	}
 
 	if exists {
-		return fmt.Errorf("template '%s' already exists. Use 'ab template show %s' to view it", name, name)
+		return fmt.Errorf("template '%s' already exists. Use 'azb template show %s' to view it", name, name)
 	}
 
 	// Create example template based on work item type
@@ -51,7 +51,7 @@ func runTemplateInit(cmd *cobra.Command, args []string) error {
 	fmt.Println("\nEdit this file to customize the template with your default values.")
 	fmt.Println("Fields can be removed if you don't need them.")
 	fmt.Printf("\nExample usage:\n")
-	fmt.Printf("  ab create --template %s --title \"Your work item title\"\n", name)
+	fmt.Printf("  azb create --template %s --title \"Your work item title\"\n", name)
 
 	return nil
 }

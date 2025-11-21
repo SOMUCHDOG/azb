@@ -124,7 +124,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Token stored at: %s\n", tokenPath)
 	} else {
 		fmt.Println("✗ Not authenticated")
-		fmt.Println("Run 'ab auth login' to authenticate")
+		fmt.Println("Run 'azb auth login' to authenticate")
 	}
 
 	return nil

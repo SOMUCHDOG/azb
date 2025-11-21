@@ -11,7 +11,7 @@ import (
 var (
 	cfgFile string
 	rootCmd = &cobra.Command{
-		Use:   "ab",
+		Use:   "azb",
 		Short: "Azure Boards CLI - Manage work items from your terminal",
 		Long: `Azure Boards CLI is a cross-platform command-line interface for managing
 Azure Boards work items. It provides both a Terminal UI dashboard for
