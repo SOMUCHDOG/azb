@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"github.com/casey/azure-boards-cli/internal/api"
 	"github.com/casey/azure-boards-cli/internal/templates"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/workitemtracking"
 )
@@ -91,4 +92,18 @@ type ConfirmDeleteWorkItemMsg struct {
 	WorkItemID int
 	Title      string
 	ChildIDs   []int
+}
+
+// OpenEditorMsg is sent to open an editor for a work item
+type OpenEditorMsg struct {
+	FilePath   string
+	WorkItemID int
+	Client     *api.Client
+}
+
+// ProcessEditedWorkItemMsg is sent after the editor closes to process changes
+type ProcessEditedWorkItemMsg struct {
+	FilePath   string
+	WorkItemID int
+	Client     *api.Client
 }

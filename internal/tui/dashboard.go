@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/casey/azure-boards-cli/internal/api"
@@ -212,6 +213,11 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						logger.Printf("Download action triggered")
 						return d, workitemsTab.handleDownloadAction()
 					}
+					// Edit work item (e key)
+					if d.keybinds.Matches(msg, "workitems", "edit") {
+						logger.Printf("Edit action triggered")
+						return d, workitemsTab.handleEditAction()
+					}
 					// Delete work item (d key)
 					if d.keybinds.Matches(msg, "workitems", "delete") {
 						logger.Printf("Delete action triggered")
@@ -287,6 +293,41 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 		return d, tea.Batch(cmds...)
+
+	case OpenEditorMsg:
+		// Open editor to edit work item
+		logger.Printf("Opening editor for work item #%d at %s", msg.WorkItemID, msg.FilePath)
+
+		// Get editor from environment
+		editor := os.Getenv("EDITOR")
+		if editor == "" {
+			editor = "vi" // fallback to vi
+		}
+
+		// Create command to open editor
+		c := exec.Command(editor, msg.FilePath)
+
+		// Return tea.ExecProcess to suspend TUI and run editor
+		return d, tea.ExecProcess(c, func(err error) tea.Msg {
+			if err != nil {
+				logger.Printf("Editor error: %v", err)
+				return NotificationMsg{
+					Message: fmt.Sprintf("Editor error: %v", err),
+					IsError: true,
+				}
+			}
+			logger.Printf("Editor closed, processing edited work item #%d", msg.WorkItemID)
+			return ProcessEditedWorkItemMsg{
+				FilePath:   msg.FilePath,
+				WorkItemID: msg.WorkItemID,
+				Client:     msg.Client,
+			}
+		})
+
+	case ProcessEditedWorkItemMsg:
+		// Process the edited work item after editor closes
+		logger.Printf("Processing edited work item #%d", msg.WorkItemID)
+		return d, processEditedWorkItem(msg.FilePath, msg.WorkItemID, msg.Client)
 
 	default:
 		// Route all other messages to the active tab

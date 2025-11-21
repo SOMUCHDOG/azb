@@ -683,3 +683,141 @@ func deleteWorkItemWithChildren(client *api.Client, parentID int, childIDs []int
 		}
 	}
 }
+
+// handleEditAction handles the edit work item action (e key)
+func (t *WorkItemsTab) handleEditAction() tea.Cmd {
+	selectedItem := t.list.SelectedItem()
+	if item, ok := selectedItem.(workItemItem); ok {
+		return prepareEditWorkItem(t.client, item.workItem)
+	}
+	return nil
+}
+
+// prepareEditWorkItem fetches full work item, converts to YAML, and creates temp file
+func prepareEditWorkItem(client *api.Client, wi workitemtracking.WorkItem) tea.Cmd {
+	return func() tea.Msg {
+		id := *wi.Id
+		logger.Printf("Preparing to edit work item #%d", id)
+
+		// Fetch full work item with all fields
+		fullWI, err := client.GetWorkItem(id)
+		if err != nil {
+			logger.Printf("Failed to fetch work item #%d: %v", id, err)
+			return NotificationMsg{
+				Message: fmt.Sprintf("Failed to fetch work item #%d: %v", id, err),
+				IsError: true,
+			}
+		}
+
+		// Convert to template format for editing
+		template := convertWorkItemToTemplate(fullWI)
+
+		// Serialize to YAML
+		yamlData, err := yaml.Marshal(template)
+		if err != nil {
+			logger.Printf("Failed to serialize work item #%d to YAML: %v", id, err)
+			return NotificationMsg{
+				Message: fmt.Sprintf("Failed to serialize work item: %v", err),
+				IsError: true,
+			}
+		}
+
+		// Create temporary file
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			logger.Printf("Failed to get home directory: %v", err)
+			return NotificationMsg{
+				Message: fmt.Sprintf("Failed to get home directory: %v", err),
+				IsError: true,
+			}
+		}
+
+		tempDir := filepath.Join(homeDir, ".azure-boards-cli", "tmp")
+		if err := os.MkdirAll(tempDir, 0755); err != nil {
+			logger.Printf("Failed to create temp directory: %v", err)
+			return NotificationMsg{
+				Message: fmt.Sprintf("Failed to create temp directory: %v", err),
+				IsError: true,
+			}
+		}
+
+		tempFile := filepath.Join(tempDir, fmt.Sprintf("edit-workitem-%d.yaml", id))
+		if err := os.WriteFile(tempFile, yamlData, 0644); err != nil {
+			logger.Printf("Failed to write temp file: %v", err)
+			return NotificationMsg{
+				Message: fmt.Sprintf("Failed to write temp file: %v", err),
+				IsError: true,
+			}
+		}
+
+		logger.Printf("Created temp file for editing: %s", tempFile)
+
+		return OpenEditorMsg{
+			FilePath:   tempFile,
+			WorkItemID: id,
+			Client:     client,
+		}
+	}
+}
+
+// processEditedWorkItem reads the edited YAML and updates the work item
+func processEditedWorkItem(filePath string, workItemID int, client *api.Client) tea.Cmd {
+	return func() tea.Msg {
+		logger.Printf("Processing edited work item #%d from %s", workItemID, filePath)
+
+		// Read edited YAML
+		yamlData, err := os.ReadFile(filePath)
+		if err != nil {
+			logger.Printf("Failed to read edited file: %v", err)
+			return NotificationMsg{
+				Message: fmt.Sprintf("Failed to read edited file: %v", err),
+				IsError: true,
+			}
+		}
+
+		// Parse YAML
+		var template templates.Template
+		if err := yaml.Unmarshal(yamlData, &template); err != nil {
+			logger.Printf("Failed to parse edited YAML: %v", err)
+			return NotificationMsg{
+				Message: fmt.Sprintf("Failed to parse edited YAML: %v", err),
+				IsError: true,
+			}
+		}
+
+		// Build update document from template
+		updateFields := buildUpdateDocument(&template)
+
+		// Update work item
+		_, err = client.UpdateWorkItem(workItemID, updateFields)
+		if err != nil {
+			logger.Printf("Failed to update work item #%d: %v", workItemID, err)
+			return NotificationMsg{
+				Message: fmt.Sprintf("Failed to update work item #%d: %v", workItemID, err),
+				IsError: true,
+			}
+		}
+
+		logger.Printf("Successfully updated work item #%d", workItemID)
+
+		// Clean up temp file
+		os.Remove(filePath)
+
+		return NotificationMsg{
+			Message: fmt.Sprintf("Successfully updated work item #%d", workItemID),
+			IsError: false,
+		}
+	}
+}
+
+// buildUpdateDocument converts template fields to API update format
+func buildUpdateDocument(template *templates.Template) map[string]interface{} {
+	fields := make(map[string]interface{})
+
+	// Copy all fields from template
+	for fieldName, value := range template.Fields {
+		fields[fieldName] = value
+	}
+
+	return fields
+}
