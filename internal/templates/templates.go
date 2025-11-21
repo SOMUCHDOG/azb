@@ -224,6 +224,12 @@ func Rename(oldName, newName string) error {
 		newPath = filepath.Join(templatesDir, newName)
 	}
 
+	// Create parent directories if newName contains a path
+	newParentDir := filepath.Dir(newPath)
+	if err := os.MkdirAll(newParentDir, 0755); err != nil {
+		return fmt.Errorf("failed to create parent directories: %w", err)
+	}
+
 	// Check if new path already exists
 	if _, err := os.Stat(newPath); err == nil {
 		return fmt.Errorf("'%s' already exists", newName)
