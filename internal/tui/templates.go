@@ -133,7 +133,8 @@ func (t *TemplatesTab) SetSize(width, height int) {
 
 	t.list.SetSize(listWidth, t.ContentHeight())
 	t.preview.Width = previewWidth
-	t.preview.Height = t.ContentHeight() - 2
+	// Account for BoxStyle border (2) + padding (2) = 4 lines
+	t.preview.Height = t.ContentHeight() - 4
 }
 
 // handleEnter toggles folder expansion or creates work item from template

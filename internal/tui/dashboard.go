@@ -633,9 +633,6 @@ func (d *Dashboard) View() string {
 		parts = append(parts, d.confirmation.View())
 	}
 
-	// Add footer
-	parts = append(parts, RenderFooter(""))
-
 	mainView := lipgloss.JoinVertical(lipgloss.Left, parts...)
 
 	// Render help overlay on top of everything if visible

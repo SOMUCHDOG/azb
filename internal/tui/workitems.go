@@ -215,7 +215,8 @@ func (t *WorkItemsTab) updateSizes() {
 		detailsHeight := t.ContentHeight() - listHeight
 		t.list.SetSize(t.Width(), listHeight)
 		t.viewport.Width = t.Width() - 4
-		t.viewport.Height = detailsHeight - 4
+		// Account for BoxStyle border (2) + padding (2) + details header (1) = 5 lines
+		t.viewport.Height = detailsHeight - 5
 	} else {
 		t.list.SetSize(t.Width(), t.ContentHeight())
 	}
