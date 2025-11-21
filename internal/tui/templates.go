@@ -61,7 +61,7 @@ func (t *TemplatesTab) Name() string {
 // Init initializes the tab
 func (t *TemplatesTab) Init(width, height int) tea.Cmd {
 	t.SetSize(width, height)
-	return t.fetchTemplates()
+	return t.FetchTemplates()
 }
 
 // Update handles messages
@@ -86,7 +86,7 @@ func (t *TemplatesTab) Update(msg tea.Msg) (Tab, tea.Cmd) {
 			return t.handleEnter()
 		case key.Matches(msg, key.NewBinding(key.WithKeys("r"))):
 			t.loading = true
-			return t, t.fetchTemplates()
+			return t, t.FetchTemplates()
 		default:
 			// Update list and preview on selection change
 			t.list, cmd = t.list.Update(msg)
@@ -198,8 +198,8 @@ func (t *TemplatesTab) flattenTemplates(templateNodes []*templates.TemplateNode,
 	return items
 }
 
-// fetchTemplates loads templates from the filesystem
-func (t *TemplatesTab) fetchTemplates() tea.Cmd {
+// FetchTemplates loads templates from the filesystem
+func (t *TemplatesTab) FetchTemplates() tea.Cmd {
 	return func() tea.Msg {
 		templateNodes, err := templates.ListTree()
 		if err != nil {
@@ -345,7 +345,44 @@ func (t *TemplatesTab) GetHelpEntries() []HelpEntry {
 		{Action: "new_template", Description: "Create new template"},
 		{Action: "new_folder", Description: "Create new folder"},
 		{Action: "edit", Description: "Edit template in $EDITOR"},
+		{Action: "rename", Description: "Rename template or folder"},
 		{Action: "delete", Description: "Delete template"},
 		{Action: "refresh", Description: "Refresh templates list"},
+	}
+}
+
+// handleRenameAction handles the rename template action (m key)
+func (t *TemplatesTab) handleRenameAction() *InputPrompt {
+	selectedItem := t.list.SelectedItem()
+	if item, ok := selectedItem.(templateListItem); ok {
+		// Show input prompt for new name
+		prompt := NewInputPrompt()
+		prompt.Show("Enter new name:", item.Name, "rename_template", item.Path)
+		return prompt
+	}
+	return nil
+}
+
+// renameTemplate renames a template or folder
+func renameTemplate(oldPath, newName string) tea.Cmd {
+	return func() tea.Msg {
+		logger.Printf("Renaming '%s' to '%s'", oldPath, newName)
+
+		// Perform rename
+		if err := templates.Rename(oldPath, newName); err != nil {
+			logger.Printf("Failed to rename: %v", err)
+			return NotificationMsg{
+				Message: fmt.Sprintf("Failed to rename: %v", err),
+				IsError: true,
+			}
+		}
+
+		logger.Printf("Successfully renamed to '%s'", newName)
+
+		return TemplateRenamedMsg{
+			OldPath: oldPath,
+			NewPath: newName,
+			Error:   nil,
+		}
 	}
 }

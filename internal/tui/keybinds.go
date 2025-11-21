@@ -50,6 +50,7 @@ type KeybindConfig struct {
 		NewTemplate []string `yaml:"new_template"`
 		NewFolder   []string `yaml:"new_folder"`
 		Edit        []string `yaml:"edit"`
+		Rename      []string `yaml:"rename"`
 		Delete      []string `yaml:"delete"`
 	} `yaml:"templates"`
 }
@@ -63,10 +64,10 @@ func NewKeybindController() *KeybindController {
 		templates: make(map[string]key.Binding),
 	}
 
-	// Load configuration or use defaults
+	// Always load defaults first, then overlay user config
+	kc.LoadDefaults()
 	if err := kc.LoadConfig(); err != nil {
-		logger.Printf("Failed to load keybinds config: %v, using defaults", err)
-		kc.LoadDefaults()
+		logger.Printf("Failed to load keybinds config: %v, using defaults only", err)
 	}
 
 	return kc
@@ -187,6 +188,10 @@ func (kc *KeybindController) LoadDefaults() {
 	kc.templates["edit"] = key.NewBinding(
 		key.WithKeys("e"),
 		key.WithHelp("e", "edit template"),
+	)
+	kc.templates["rename"] = key.NewBinding(
+		key.WithKeys("m"),
+		key.WithHelp("m", "rename"),
 	)
 	kc.templates["delete"] = key.NewBinding(
 		key.WithKeys("d"),
@@ -327,6 +332,12 @@ func (kc *KeybindController) buildBindings() {
 			key.WithHelp(kc.config.Templates.Edit[0], "edit template"),
 		)
 	}
+	if len(kc.config.Templates.Rename) > 0 {
+		kc.templates["rename"] = key.NewBinding(
+			key.WithKeys(kc.config.Templates.Rename...),
+			key.WithHelp(kc.config.Templates.Rename[0], "rename"),
+		)
+	}
 	if len(kc.config.Templates.Delete) > 0 {
 		kc.templates["delete"] = key.NewBinding(
 			key.WithKeys(kc.config.Templates.Delete...),
@@ -368,6 +379,7 @@ templates:
   new_template: ["n"]      # Create new template
   new_folder: ["f"]        # Create new folder
   edit: ["e"]              # Edit template in $EDITOR
+  rename: ["m"]            # Rename template or folder
   delete: ["d"]            # Delete template (with confirmation)
 `
 

@@ -82,6 +82,13 @@ type TemplateDeletedMsg struct {
 	Error        error
 }
 
+// TemplateRenamedMsg is sent when a template is renamed
+type TemplateRenamedMsg struct {
+	OldPath string
+	NewPath string
+	Error   error
+}
+
 // SwitchToTabMsg is sent to switch to a specific tab
 type SwitchToTabMsg struct {
 	TabIndex int

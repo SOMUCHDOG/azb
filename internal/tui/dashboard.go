@@ -129,9 +129,19 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.Type {
 			case tea.KeyEnter:
 				value := d.inputPrompt.Value()
+				action := d.inputPrompt.Action
+				context := d.inputPrompt.Context
 				d.inputPrompt.Hide()
-				// TODO: Handle input submission based on action
-				logger.Printf("Input submitted: %s (action: %s)", value, d.inputPrompt.Action)
+
+				// Handle action based on type
+				if action == "rename_template" {
+					if oldPath, ok := context.(string); ok {
+						logger.Printf("Renaming template '%s' to '%s'", oldPath, value)
+						return d, renameTemplate(oldPath, value)
+					}
+				}
+
+				logger.Printf("Input submitted: %s (action: %s)", value, action)
 				return d, nil
 			case tea.KeyEsc:
 				d.inputPrompt.Hide()
@@ -225,6 +235,20 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			}
+
+			// Handle Templates tab actions
+			if d.tabs[d.currentTab].Name() == "Templates" {
+				if templatesTab, ok := d.tabs[d.currentTab].(*TemplatesTab); ok {
+					// Rename template (m key)
+					if d.keybinds.Matches(msg, "templates", "rename") {
+						logger.Printf("Rename action triggered")
+						if prompt := templatesTab.handleRenameAction(); prompt != nil {
+							d.inputPrompt = prompt
+						}
+						return d, nil
+					}
+				}
+			}
 		}
 
 		// Route message to active tab
@@ -292,6 +316,37 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			d.tabs[2] = tab
 			cmds = append(cmds, cmd)
 		}
+		return d, tea.Batch(cmds...)
+
+	case TemplateRenamedMsg:
+		// Show notification and refresh templates
+		if msg.Error != nil {
+			logger.Printf("Failed to rename template: %v", msg.Error)
+			return d, func() tea.Msg {
+				return NotificationMsg{
+					Message: fmt.Sprintf("Failed to rename: %v", msg.Error),
+					IsError: true,
+				}
+			}
+		}
+
+		logger.Printf("Template renamed successfully")
+
+		// Show success notification
+		cmds = append(cmds, func() tea.Msg {
+			return NotificationMsg{
+				Message: fmt.Sprintf("Renamed to '%s'", msg.NewPath),
+				IsError: false,
+			}
+		})
+
+		// Refresh templates list
+		if len(d.tabs) > 2 {
+			if templatesTab, ok := d.tabs[2].(*TemplatesTab); ok {
+				cmds = append(cmds, templatesTab.FetchTemplates())
+			}
+		}
+
 		return d, tea.Batch(cmds...)
 
 	case OpenEditorMsg:
