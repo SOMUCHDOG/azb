@@ -41,3 +41,8 @@ func (t *AgentsTab) View() string {
 func (t *AgentsTab) SetSize(width, height int) {
 	t.TabBase.SetSize(width, height)
 }
+
+// GetHelpEntries returns the list of available actions for the Agents tab
+func (t *AgentsTab) GetHelpEntries() []HelpEntry {
+	return []HelpEntry{}
+}

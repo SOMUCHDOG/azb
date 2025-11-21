@@ -337,3 +337,15 @@ type templateListItem struct {
 }
 
 func (i templateListItem) FilterValue() string { return i.Name }
+
+// GetHelpEntries returns the list of available actions for the Templates tab
+func (t *TemplatesTab) GetHelpEntries() []HelpEntry {
+	return []HelpEntry{
+		{Action: "copy", Description: "Copy template"},
+		{Action: "new_template", Description: "Create new template"},
+		{Action: "new_folder", Description: "Create new folder"},
+		{Action: "edit", Description: "Edit template in $EDITOR"},
+		{Action: "delete", Description: "Delete template"},
+		{Action: "refresh", Description: "Refresh templates list"},
+	}
+}

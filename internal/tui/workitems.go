@@ -3,16 +3,20 @@ package tui
 import (
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/casey/azure-boards-cli/internal/api"
+	"github.com/casey/azure-boards-cli/internal/templates"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/workitemtracking"
+	"gopkg.in/yaml.v3"
 )
 
 // WorkItemsTab displays and manages work items
@@ -434,3 +438,248 @@ type workItemItem struct {
 }
 
 func (i workItemItem) FilterValue() string { return i.Title }
+
+// GetHelpEntries returns the list of available actions for the Work Items tab
+func (t *WorkItemsTab) GetHelpEntries() []HelpEntry {
+	return []HelpEntry{
+		{Action: "details", Description: "Toggle details view"},
+		{Action: "download", Description: "Download as YAML template"},
+		{Action: "edit", Description: "Edit work item in $EDITOR"},
+		{Action: "delete", Description: "Delete work item and children"},
+		{Action: "create", Description: "Create new work item"},
+		{Action: "change_state", Description: "Change work item state"},
+		{Action: "assign", Description: "Assign to user"},
+		{Action: "add_tags", Description: "Add tags"},
+		{Action: "refresh", Description: "Refresh work items list"},
+	}
+}
+
+// handleDownloadAction initiates the download work item action
+func (t *WorkItemsTab) handleDownloadAction() tea.Cmd {
+	selectedItem := t.list.SelectedItem()
+	if item, ok := selectedItem.(workItemItem); ok {
+		return downloadWorkItem(t.client, item.workItem)
+	}
+	return nil
+}
+
+// downloadWorkItem downloads a work item as a YAML template
+func downloadWorkItem(client *api.Client, wi workitemtracking.WorkItem) tea.Cmd {
+	return func() tea.Msg {
+		// Get work item ID
+		id := 0
+		if wi.Id != nil {
+			id = *wi.Id
+		}
+
+		logger.Printf("Downloading work item #%d as template", id)
+
+		// Fetch full work item details (with relations)
+		fullWI, err := client.GetWorkItem(id)
+		if err != nil {
+			logger.Printf("Failed to fetch work item #%d: %v", id, err)
+			return NotificationMsg{
+				Message: fmt.Sprintf("Failed to fetch work item #%d: %v", id, err),
+				IsError: true,
+			}
+		}
+
+		// Convert to template format
+		template := convertWorkItemToTemplate(fullWI)
+
+		// Serialize to YAML
+		yamlData, err := yaml.Marshal(template)
+		if err != nil {
+			logger.Printf("Failed to serialize work item: %v", err)
+			return NotificationMsg{
+				Message: fmt.Sprintf("Failed to serialize work item: %v", err),
+				IsError: true,
+			}
+		}
+
+		// Save to templates directory with name format: workitem-{id}-{sanitized-title}.yaml
+		homeDir, _ := os.UserHomeDir()
+		templatesDir := filepath.Join(homeDir, ".azure-boards-cli", "templates")
+		os.MkdirAll(templatesDir, 0755)
+
+		title := getStringField(fullWI, "System.Title")
+		sanitized := sanitizeFilename(title)
+		filename := fmt.Sprintf("workitem-%d-%s.yaml", id, sanitized)
+		filePath := filepath.Join(templatesDir, filename)
+
+		if err := os.WriteFile(filePath, yamlData, 0644); err != nil {
+			logger.Printf("Failed to save template: %v", err)
+			return NotificationMsg{
+				Message: fmt.Sprintf("Failed to save template: %v", err),
+				IsError: true,
+			}
+		}
+
+		logger.Printf("Downloaded work item #%d as template: %s", id, filename)
+		return NotificationMsg{
+			Message: fmt.Sprintf("Downloaded work item #%d as template: %s", id, filename),
+			IsError: false,
+		}
+	}
+}
+
+// convertWorkItemToTemplate converts a work item to a template
+func convertWorkItemToTemplate(wi *workitemtracking.WorkItem) *templates.Template {
+	template := &templates.Template{
+		Name:        getStringField(wi, "System.Title"),
+		Type:        getStringField(wi, "System.WorkItemType"),
+		Description: fmt.Sprintf("Template created from work item #%d", *wi.Id),
+		Fields:      make(map[string]interface{}),
+	}
+
+	// Copy relevant fields
+	relevantFields := []string{
+		"System.Title",
+		"System.Description",
+		"System.Tags",
+		"Microsoft.VSTS.Common.Priority",
+		"Microsoft.VSTS.Common.AcceptanceCriteria",
+		"System.AreaPath",
+		"System.IterationPath",
+	}
+
+	if wi.Fields != nil {
+		for _, fieldName := range relevantFields {
+			if value, ok := (*wi.Fields)[fieldName]; ok {
+				template.Fields[fieldName] = value
+			}
+		}
+	}
+
+	// Handle relationships (children)
+	if wi.Relations != nil {
+		for _, rel := range *wi.Relations {
+			if rel.Rel != nil && *rel.Rel == "System.LinkTypes.Hierarchy-Forward" {
+				// This is a child work item - add placeholder
+				if template.Relations == nil {
+					template.Relations = &templates.Relations{}
+				}
+				child := templates.ChildWorkItem{
+					Title: "Child Task (from relationship)",
+					Type:  "Task",
+				}
+				template.Relations.Children = append(template.Relations.Children, child)
+			}
+		}
+	}
+
+	return template
+}
+
+// sanitizeFilename removes invalid filename characters
+func sanitizeFilename(s string) string {
+	// Remove invalid filename characters
+	invalid := []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|"}
+	result := s
+	for _, char := range invalid {
+		result = strings.ReplaceAll(result, char, "-")
+	}
+	// Limit length
+	if len(result) > 50 {
+		result = result[:50]
+	}
+	return strings.ToLower(strings.TrimSpace(result))
+}
+
+// handleDeleteAction initiates the delete work item action
+func (t *WorkItemsTab) handleDeleteAction() tea.Cmd {
+	selectedItem := t.list.SelectedItem()
+	if item, ok := selectedItem.(workItemItem); ok {
+		return fetchWorkItemForDelete(t.client, item.workItem)
+	}
+	return nil
+}
+
+// fetchWorkItemForDelete fetches work item with relationships for deletion
+func fetchWorkItemForDelete(client *api.Client, wi workitemtracking.WorkItem) tea.Cmd {
+	return func() tea.Msg {
+		id := 0
+		if wi.Id != nil {
+			id = *wi.Id
+		}
+
+		logger.Printf("Fetching work item #%d for deletion", id)
+
+		// Fetch full work item with relationships
+		fullWI, err := client.GetWorkItem(id)
+		if err != nil {
+			logger.Printf("Failed to fetch work item details: %v", err)
+			return NotificationMsg{
+				Message: fmt.Sprintf("Failed to fetch work item details: %v", err),
+				IsError: true,
+			}
+		}
+
+		// Find all child work items
+		childIDs := []int{}
+		if fullWI.Relations != nil {
+			for _, rel := range *fullWI.Relations {
+				if rel.Rel != nil && *rel.Rel == "System.LinkTypes.Hierarchy-Forward" {
+					// This is a child - extract ID from URL
+					if rel.Url != nil {
+						childID := extractWorkItemIDFromURL(*rel.Url)
+						if childID > 0 {
+							childIDs = append(childIDs, childID)
+						}
+					}
+				}
+			}
+		}
+
+		title := getStringField(fullWI, "System.Title")
+
+		logger.Printf("Work item #%d has %d child tasks", id, len(childIDs))
+
+		return ConfirmDeleteWorkItemMsg{
+			WorkItemID: id,
+			Title:      title,
+			ChildIDs:   childIDs,
+		}
+	}
+}
+
+// deleteWorkItemWithChildren deletes a work item and all its children
+func deleteWorkItemWithChildren(client *api.Client, parentID int, childIDs []int) tea.Cmd {
+	return func() tea.Msg {
+		logger.Printf("Deleting work item #%d with %d children", parentID, len(childIDs))
+
+		// Delete children first (in reverse order to avoid dependency issues)
+		for i := len(childIDs) - 1; i >= 0; i-- {
+			childID := childIDs[i]
+			if err := client.DeleteWorkItem(childID); err != nil {
+				logger.Printf("Failed to delete child work item #%d: %v", childID, err)
+				return NotificationMsg{
+					Message: fmt.Sprintf("Failed to delete child work item #%d: %v", childID, err),
+					IsError: true,
+				}
+			}
+			logger.Printf("Deleted child work item #%d", childID)
+		}
+
+		// Delete parent
+		if err := client.DeleteWorkItem(parentID); err != nil {
+			logger.Printf("Failed to delete work item #%d: %v", parentID, err)
+			return NotificationMsg{
+				Message: fmt.Sprintf("Failed to delete work item #%d: %v", parentID, err),
+				IsError: true,
+			}
+		}
+
+		logger.Printf("Deleted parent work item #%d", parentID)
+
+		message := fmt.Sprintf("Successfully deleted work item #%d", parentID)
+		if len(childIDs) > 0 {
+			message += fmt.Sprintf(" and %d child task(s)", len(childIDs))
+		}
+
+		return WorkItemDeletedMsg{
+			ID:    parentID,
+			Error: nil,
+		}
+	}
+}

@@ -85,3 +85,10 @@ type TemplateDeletedMsg struct {
 type SwitchToTabMsg struct {
 	TabIndex int
 }
+
+// ConfirmDeleteWorkItemMsg is sent to request confirmation for deleting a work item
+type ConfirmDeleteWorkItemMsg struct {
+	WorkItemID int
+	Title      string
+	ChildIDs   []int
+}

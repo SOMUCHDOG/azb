@@ -41,3 +41,8 @@ func (t *PipelinesTab) View() string {
 func (t *PipelinesTab) SetSize(width, height int) {
 	t.TabBase.SetSize(width, height)
 }
+
+// GetHelpEntries returns the list of available actions for the Pipelines tab
+func (t *PipelinesTab) GetHelpEntries() []HelpEntry {
+	return []HelpEntry{}
+}

@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 
 	"github.com/casey/azure-boards-cli/internal/api"
-	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -52,15 +51,26 @@ type Dashboard struct {
 	inputPrompt  *InputPrompt
 	confirmation *ConfirmationDialog
 	err          error
+
+	// Controllers
+	keybinds *KeybindController
+	actions  *ActionController
+	help     *HelpController
 }
 
 // NewDashboard creates a new dashboard
 func NewDashboard(client *api.Client) *Dashboard {
+	// Initialize keybind controller first
+	keybinds := NewKeybindController()
+
 	dashboard := &Dashboard{
 		client:       client,
 		notification: NewNotification("", false),
 		inputPrompt:  NewInputPrompt(),
 		confirmation: NewConfirmationDialog(),
+		keybinds:     keybinds,
+		actions:      NewActionController(keybinds),
+		help:         NewHelpController(keybinds),
 	}
 
 	// Initialize tabs
@@ -135,32 +145,80 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if d.confirmation.Active {
 			switch msg.String() {
 			case "y", "Y":
+				action := d.confirmation.Action
+				context := d.confirmation.Context
 				d.confirmation.Hide()
-				// TODO: Handle confirmation based on action
-				logger.Printf("Confirmed action: %s", d.confirmation.Action)
+
+				// Handle confirmed action
+				if action == "delete_work_item" {
+					if ctx, ok := context.(ConfirmDeleteWorkItemMsg); ok {
+						logger.Printf("Executing delete for work item #%d with %d children", ctx.WorkItemID, len(ctx.ChildIDs))
+						return d, deleteWorkItemWithChildren(d.client, ctx.WorkItemID, ctx.ChildIDs)
+					}
+				}
+
+				logger.Printf("Confirmed action: %s", action)
 				return d, nil
 			case "n", "N", "esc":
 				d.confirmation.Hide()
+				logger.Printf("Cancelled action: %s", d.confirmation.Action)
 				return d, nil
 			}
 			return d, nil
 		}
 
+		// Handle help toggle (? key)
+		if d.keybinds.Matches(msg, "global", "help") {
+			if d.help.IsVisible() {
+				d.help.Hide()
+				logger.Printf("Help hidden")
+			} else {
+				currentTabName := d.tabs[d.currentTab].Name()
+				d.help.Show(currentTabName)
+				logger.Printf("Help shown for tab: %s", currentTabName)
+			}
+			return d, nil
+		}
+
+		// If help is visible, block all other input (except help toggle handled above)
+		if d.help.IsVisible() {
+			return d, nil
+		}
+
 		// Handle quit
-		if key.Matches(msg, key.NewBinding(key.WithKeys("q", "ctrl+c"))) {
+		if d.keybinds.Matches(msg, "global", "quit") {
 			return d, tea.Quit
 		}
 
 		// Handle tab switching
-		if msg.String() == "tab" {
+		if d.keybinds.Matches(msg, "global", "next_tab") {
 			d.currentTab = (d.currentTab + 1) % len(d.tabs)
 			logger.Printf("Switched to tab %d: %s", d.currentTab, d.tabs[d.currentTab].Name())
 			return d, nil
 		}
-		if msg.String() == "shift+tab" {
+		if d.keybinds.Matches(msg, "global", "prev_tab") {
 			d.currentTab = (d.currentTab - 1 + len(d.tabs)) % len(d.tabs)
 			logger.Printf("Switched to tab %d: %s", d.currentTab, d.tabs[d.currentTab].Name())
 			return d, nil
+		}
+
+		// Check if actions can be executed (not during filtering, etc.)
+		if d.actions.CanExecuteAction(d.tabs[d.currentTab]) {
+			// Handle Work Items tab actions
+			if d.tabs[d.currentTab].Name() == "Work Items" {
+				if workitemsTab, ok := d.tabs[d.currentTab].(*WorkItemsTab); ok {
+					// Download work item (w key)
+					if d.keybinds.Matches(msg, "workitems", "download") {
+						logger.Printf("Download action triggered")
+						return d, workitemsTab.handleDownloadAction()
+					}
+					// Delete work item (d key)
+					if d.keybinds.Matches(msg, "workitems", "delete") {
+						logger.Printf("Delete action triggered")
+						return d, workitemsTab.handleDeleteAction()
+					}
+				}
+			}
 		}
 
 		// Route message to active tab
@@ -182,6 +240,22 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			d.currentTab = msg.TabIndex
 			logger.Printf("Switched to tab %d: %s", d.currentTab, d.tabs[d.currentTab].Name())
 		}
+		return d, nil
+
+	case ConfirmDeleteWorkItemMsg:
+		// Show confirmation dialog for work item deletion
+		childCount := len(msg.ChildIDs)
+		childText := ""
+		if childCount > 0 {
+			childText = fmt.Sprintf(" and its %d child task(s)", childCount)
+		}
+
+		d.confirmation.Show(
+			fmt.Sprintf("Delete work item #%d: '%s'%s?", msg.WorkItemID, msg.Title, childText),
+			"delete_work_item",
+			msg, // Store context for when user confirms
+		)
+		logger.Printf("Showing delete confirmation for work item #%d with %d children", msg.WorkItemID, childCount)
 		return d, nil
 
 	case WorkItemsLoadedMsg, QueryExecutedMsg, WorkItemDeletedMsg:
@@ -259,7 +333,14 @@ func (d *Dashboard) View() string {
 	// Add footer
 	parts = append(parts, RenderFooter(""))
 
-	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+	mainView := lipgloss.JoinVertical(lipgloss.Left, parts...)
+
+	// Render help overlay on top of everything if visible
+	if d.help.IsVisible() {
+		return d.help.View(d.width, d.height)
+	}
+
+	return mainView
 }
 
 // Run starts the dashboard TUI
