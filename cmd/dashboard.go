@@ -7,7 +7,6 @@ import (
 	"github.com/casey/azure-boards-cli/internal/auth"
 	"github.com/casey/azure-boards-cli/internal/config"
 	"github.com/casey/azure-boards-cli/internal/tui"
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -63,16 +62,5 @@ func runDashboard(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create and run TUI
-	model := tui.NewModel(client)
-	p := tea.NewProgram(
-		model,
-		tea.WithAltScreen(),
-		tea.WithMouseCellMotion(),
-	)
-
-	if _, err := p.Run(); err != nil {
-		return fmt.Errorf("failed to run dashboard: %w", err)
-	}
-
-	return nil
+	return tui.Run(client)
 }
