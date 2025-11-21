@@ -139,6 +139,29 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						logger.Printf("Renaming template '%s' to '%s'", oldPath, value)
 						return d, renameTemplate(oldPath, value)
 					}
+				} else if action == "copy_template" {
+					if oldPath, ok := context.(string); ok {
+						logger.Printf("Copying template '%s' to '%s'", oldPath, value)
+						return d, copyTemplate(oldPath, value)
+					}
+				} else if action == "new_template" {
+					logger.Printf("Creating new template: %s", value)
+					return d, tea.Batch(
+						createNewTemplate(value),
+						func() tea.Msg {
+							// Refresh templates after a brief delay
+							return RefreshTemplatesMsg{}
+						},
+					)
+				} else if action == "new_folder" {
+					logger.Printf("Creating new folder: %s", value)
+					return d, tea.Batch(
+						createNewFolder(value),
+						func() tea.Msg {
+							// Refresh templates after a brief delay
+							return RefreshTemplatesMsg{}
+						},
+					)
 				}
 
 				logger.Printf("Input submitted: %s (action: %s)", value, action)
@@ -165,6 +188,11 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if ctx, ok := context.(ConfirmDeleteWorkItemMsg); ok {
 						logger.Printf("Executing delete for work item #%d with %d children", ctx.WorkItemID, len(ctx.ChildIDs))
 						return d, deleteWorkItemWithChildren(d.client, ctx.WorkItemID, ctx.ChildIDs)
+					}
+				} else if action == "delete_template" {
+					if ctx, ok := context.(ConfirmDeleteTemplateMsg); ok {
+						logger.Printf("Executing delete for template: %s", ctx.Path)
+						return d, deleteTemplate(ctx.Path, ctx.IsDir)
 					}
 				}
 
@@ -239,10 +267,44 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Handle Templates tab actions
 			if d.tabs[d.currentTab].Name() == "Templates" {
 				if templatesTab, ok := d.tabs[d.currentTab].(*TemplatesTab); ok {
+					// Edit template (e key)
+					if d.keybinds.Matches(msg, "templates", "edit") {
+						logger.Printf("Edit template action triggered")
+						return d, templatesTab.handleEditAction()
+					}
 					// Rename template (m key)
 					if d.keybinds.Matches(msg, "templates", "rename") {
 						logger.Printf("Rename action triggered")
 						if prompt := templatesTab.handleRenameAction(); prompt != nil {
+							d.inputPrompt = prompt
+						}
+						return d, nil
+					}
+					// Delete template (d key)
+					if d.keybinds.Matches(msg, "templates", "delete") {
+						logger.Printf("Delete template action triggered")
+						return d, templatesTab.handleDeleteAction()
+					}
+					// Copy template (c key)
+					if d.keybinds.Matches(msg, "templates", "copy") {
+						logger.Printf("Copy template action triggered")
+						if prompt := templatesTab.handleCopyAction(); prompt != nil {
+							d.inputPrompt = prompt
+						}
+						return d, nil
+					}
+					// New template (n key)
+					if d.keybinds.Matches(msg, "templates", "new_template") {
+						logger.Printf("New template action triggered")
+						if prompt := templatesTab.handleNewTemplateAction(); prompt != nil {
+							d.inputPrompt = prompt
+						}
+						return d, nil
+					}
+					// New folder (f key)
+					if d.keybinds.Matches(msg, "templates", "new_folder") {
+						logger.Printf("New folder action triggered")
+						if prompt := templatesTab.handleNewFolderAction(); prompt != nil {
 							d.inputPrompt = prompt
 						}
 						return d, nil
@@ -348,6 +410,126 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		return d, tea.Batch(cmds...)
+
+	case ConfirmDeleteTemplateMsg:
+		// Show confirmation dialog for template deletion
+		d.confirmation.Show(
+			msg.Prompt,
+			"delete_template",
+			msg,
+		)
+		logger.Printf("Showing delete confirmation for template: %s", msg.Path)
+		return d, nil
+
+	case TemplateDeletedMsg:
+		// Show notification and refresh templates
+		if msg.Error != nil {
+			logger.Printf("Failed to delete template: %v", msg.Error)
+			return d, func() tea.Msg {
+				return NotificationMsg{
+					Message: fmt.Sprintf("Failed to delete: %v", msg.Error),
+					IsError: true,
+				}
+			}
+		}
+
+		logger.Printf("Template deleted successfully")
+
+		// Show success notification
+		cmds = append(cmds, func() tea.Msg {
+			return NotificationMsg{
+				Message: fmt.Sprintf("Deleted '%s'", msg.TemplatePath),
+				IsError: false,
+			}
+		})
+
+		// Refresh templates list
+		if len(d.tabs) > 2 {
+			if templatesTab, ok := d.tabs[2].(*TemplatesTab); ok {
+				cmds = append(cmds, templatesTab.FetchTemplates())
+			}
+		}
+
+		return d, tea.Batch(cmds...)
+
+	case TemplateCopiedMsg:
+		// Show notification and refresh templates
+		if msg.Error != nil {
+			logger.Printf("Failed to copy template: %v", msg.Error)
+			return d, func() tea.Msg {
+				return NotificationMsg{
+					Message: fmt.Sprintf("Failed to copy: %v", msg.Error),
+					IsError: true,
+				}
+			}
+		}
+
+		logger.Printf("Template copied successfully")
+
+		// Show success notification
+		cmds = append(cmds, func() tea.Msg {
+			return NotificationMsg{
+				Message: fmt.Sprintf("Copied to '%s'", msg.NewPath),
+				IsError: false,
+			}
+		})
+
+		// Refresh templates list
+		if len(d.tabs) > 2 {
+			if templatesTab, ok := d.tabs[2].(*TemplatesTab); ok {
+				cmds = append(cmds, templatesTab.FetchTemplates())
+			}
+		}
+
+		return d, tea.Batch(cmds...)
+
+	case TemplateFolderCreatedMsg:
+		// Refresh templates after folder creation (notification already shown)
+		if msg.Error == nil {
+			if len(d.tabs) > 2 {
+				if templatesTab, ok := d.tabs[2].(*TemplatesTab); ok {
+					return d, templatesTab.FetchTemplates()
+				}
+			}
+		}
+		return d, nil
+
+	case RefreshTemplatesMsg:
+		// Refresh templates list
+		logger.Printf("Refreshing templates list")
+		if len(d.tabs) > 2 {
+			if templatesTab, ok := d.tabs[2].(*TemplatesTab); ok {
+				return d, templatesTab.FetchTemplates()
+			}
+		}
+		return d, nil
+
+	case OpenEditorForTemplateMsg:
+		// Open editor to edit template file
+		logger.Printf("Opening editor for template: %s", msg.FilePath)
+
+		// Get editor from environment
+		editor := os.Getenv("EDITOR")
+		if editor == "" {
+			editor = "vi" // fallback to vi
+		}
+
+		// Create command to open editor
+		c := exec.Command(editor, msg.FilePath)
+
+		// Return tea.ExecProcess to suspend TUI and run editor
+		return d, tea.ExecProcess(c, func(err error) tea.Msg {
+			if err != nil {
+				logger.Printf("Editor error: %v", err)
+				return NotificationMsg{
+					Message: fmt.Sprintf("Editor error: %v", err),
+					IsError: true,
+				}
+			}
+			logger.Printf("Editor closed for template")
+			// Refresh templates list after edit
+			return RefreshTemplatesMsg{}
+		})
 
 	case OpenEditorMsg:
 		// Open editor to edit work item

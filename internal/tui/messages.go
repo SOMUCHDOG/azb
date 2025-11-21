@@ -114,3 +114,19 @@ type ProcessEditedWorkItemMsg struct {
 	WorkItemID int
 	Client     *api.Client
 }
+
+// OpenEditorForTemplateMsg is sent to open an editor for a template
+type OpenEditorForTemplateMsg struct {
+	FilePath string
+}
+
+// ConfirmDeleteTemplateMsg is sent to request confirmation for deleting a template
+type ConfirmDeleteTemplateMsg struct {
+	Path   string
+	Name   string
+	IsDir  bool
+	Prompt string
+}
+
+// RefreshTemplatesMsg is sent to trigger a templates list refresh
+type RefreshTemplatesMsg struct{}
