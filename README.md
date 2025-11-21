@@ -21,17 +21,17 @@ A cross-platform command-line interface for managing Azure Boards work items.
 ```bash
 git clone <repository-url>
 cd azure-boards-cli
-go build -o ab
+go build -o azb
 ```
 
 Move the binary to your PATH:
 
 ```bash
 # macOS/Linux
-sudo mv ab /usr/local/bin/
+sudo mv azb /usr/local/bin/
 
 # Or add to your local bin
-mv ab ~/bin/
+mv azb ~/bin/
 ```
 
 ## Quick Start
@@ -39,14 +39,14 @@ mv ab ~/bin/
 ### 1. Configure Organization and Project
 
 ```bash
-ab config set organization myorg
-ab config set project myproject
+azb config set organization myorg
+azb config set project myproject
 ```
 
 ### 2. Authenticate
 
 ```bash
-ab auth login
+azb auth login
 ```
 
 You'll be prompted to enter your Personal Access Token (PAT).
@@ -61,22 +61,22 @@ You'll be prompted to enter your Personal Access Token (PAT).
 
 ```bash
 # List all work items
-ab list
+azb list
 
 # List work items assigned to me
-ab list --assigned-to @me
+azb list --assigned-to @me
 
 # List active bugs
-ab list --type Bug --state Active
+azb list --type Bug --state Active
 
 # List work items in current sprint
-ab list --sprint current
+azb list --sprint current
 ```
 
 ### 4. View Work Item Details
 
 ```bash
-ab show 1234
+azb show 1234
 ```
 
 ## Usage
@@ -85,107 +85,107 @@ ab show 1234
 
 ```bash
 # Login with PAT
-ab auth login
-ab auth login --pat <your-token>
+azb auth login
+azb auth login --pat <your-token>
 
 # Check authentication status
-ab auth status
+azb auth status
 
 # Logout
-ab auth logout
+azb auth logout
 ```
 
 ### Configuration
 
 ```bash
 # Set configuration values
-ab config set organization myorg
-ab config set project myproject
-ab config set default_area_path "myproject\\Team A"
+azb config set organization myorg
+azb config set project myproject
+azb config set default_area_path "myproject\\Team A"
 
 # Get configuration value
-ab config get organization
+azb config get organization
 
 # List all configuration
-ab config list
+azb config list
 ```
 
 ### List Work Items
 
 ```bash
 # Basic listing
-ab list
+azb list
 
 # Filter options
-ab list --state <state>              # Filter by state (Active, Resolved, Closed)
-ab list --assigned-to <user>         # Filter by assignee (@me for current user)
-ab list --type <type>                # Filter by work item type (Bug, Task, User Story)
-ab list --sprint <sprint>            # Filter by sprint (current, @current, or sprint name)
-ab list --area-path <path>           # Filter by area path
-ab list --tags <tags>                # Filter by tags (comma-separated)
-ab list --limit <n>                  # Limit number of results (default: 50)
+azb list --state <state>              # Filter by state (Active, Resolved, Closed)
+azb list --assigned-to <user>         # Filter by assignee (@me for current user)
+azb list --type <type>                # Filter by work item type (Bug, Task, User Story)
+azb list --sprint <sprint>            # Filter by sprint (current, @current, or sprint name)
+azb list --area-path <path>           # Filter by area path
+azb list --tags <tags>                # Filter by tags (comma-separated)
+azb list --limit <n>                  # Limit number of results (default: 50)
 
 # Output formats
-ab list --format table               # Table format (default)
-ab list --format json                # JSON format
-ab list --format csv                 # CSV format
-ab list --format ids                 # IDs only (for scripting)
+azb list --format table               # Table format (default)
+azb list --format json                # JSON format
+azb list --format csv                 # CSV format
+azb list --format ids                 # IDs only (for scripting)
 
 # Examples
-ab list --type Bug --assigned-to @me --state Active
-ab list --sprint "Sprint 42" --format json
-ab list --tags "urgent,security" --limit 20
+azb list --type Bug --assigned-to @me --state Active
+azb list --sprint "Sprint 42" --format json
+azb list --tags "urgent,security" --limit 20
 ```
 
 ### Show Work Item
 
 ```bash
 # Show work item details
-ab show <id>
+azb show <id>
 
 # Show with JSON format
-ab show 1234 --format json
+azb show 1234 --format json
 
 # Show with comments (coming soon)
-ab show 1234 --comments
+azb show 1234 --comments
 
 # Show with history (coming soon)
-ab show 1234 --history
+azb show 1234 --history
 ```
 
 ### Update Work Item
 
 ```bash
 # Update a single field
-ab update 1234 --state Resolved
-ab update 1234 --title "New title"
-ab update 1234 --assigned-to @me
-ab update 1234 --priority 1
+azb update 1234 --state Resolved
+azb update 1234 --title "New title"
+azb update 1234 --assigned-to @me
+azb update 1234 --priority 1
 
 # Update multiple fields at once
-ab update 1234 --state Active --assigned-to "Jane Doe" --priority 2
+azb update 1234 --state Active --assigned-to "Jane Doe" --priority 2
 
 # Update custom fields
-ab update 1234 --field "Custom.ApplicationName=MyApp"
-ab update 1234 --field "Microsoft.VSTS.Scheduling.StoryPoints=5"
+azb update 1234 --field "Custom.ApplicationName=MyApp"
+azb update 1234 --field "Microsoft.VSTS.Scheduling.StoryPoints=5"
 
 # Tag operations
-ab update 1234 --add-tag "urgent,bug"
-ab update 1234 --remove-tag "needs-triage"
-ab update 1234 --add-tag "reviewed" --remove-tag "needs-review"
+azb update 1234 --add-tag "urgent,bug"
+azb update 1234 --remove-tag "needs-triage"
+azb update 1234 --add-tag "reviewed" --remove-tag "needs-review"
 
 # Bulk update (update multiple work items)
-ab update 1234,1235,1236 --state Closed
-ab update 1234,1235,1236 --add-tag "sprint-42"
+azb update 1234,1235,1236 --state Closed
+azb update 1234,1235,1236 --add-tag "sprint-42"
 
 # Interactive mode (prompts for each field)
-ab update 1234 --interactive
-ab update 1234 -i
+azb update 1234 --interactive
+azb update 1234 -i
 ```
 
 **Interactive Mode Example:**
 ```
-$ ab update 1234 -i
+$ azb update 1234 -i
 Interactive update for work item 1234
 Leave blank to keep current value, enter new value to update
 
@@ -210,13 +210,13 @@ Update work item? (y/N): y
 
 ```bash
 # Interactive mode (will prompt for all fields)
-ab create
+azb create
 
 # Command line mode with required fields
-ab create --type Bug --title "Fix login issue"
+azb create --type Bug --title "Fix login issue"
 
 # With all fields specified
-ab create \
+azb create \
   --type "User Story" \
   --title "Implement dashboard" \
   --description "Create a new dashboard for analytics" \
@@ -227,14 +227,14 @@ ab create \
   --tags "frontend,dashboard"
 
 # Quick bug creation
-ab create --type Bug --title "Button not working" --assigned-to @me --priority 1
+azb create --type Bug --title "Button not working" --assigned-to @me --priority 1
 
 # Create task
-ab create --type Task --title "Update documentation" --tags "docs"
+azb create --type Task --title "Update documentation" --tags "docs"
 ```
 
 **Interactive Mode:**
-When you run `ab create` without flags, you'll be prompted for each field:
+When you run `azb create` without flags, you'll be prompted for each field:
 - Work item type (Bug, Task, User Story, Feature, Epic)
 - Title (required)
 - Description (optional)
@@ -256,10 +256,10 @@ There are two ways to create templates:
 *Option 1: Initialize from example (recommended)*
 ```bash
 # Create a template file with example fields
-ab template init my-story "User Story"
+azb template init my-story "User Story"
 
 # Edit the template file with your defaults
-ab template edit my-story
+azb template edit my-story
 
 # Or manually edit the file
 # Templates are in: ~/.azure-boards-cli/templates/
@@ -268,7 +268,7 @@ ab template edit my-story
 *Option 2: Save from command-line flags*
 ```bash
 # Save a template for bug reports
-ab template save bug-report \
+azb template save bug-report \
   --type Bug \
   --description "Template for bug reports" \
   --assigned-to @me \
@@ -277,7 +277,7 @@ ab template save bug-report \
   --field "Custom.ApplicationName=MyApp"
 
 # Save a template for user stories
-ab template save user-story \
+azb template save user-story \
   --type "User Story" \
   --description "Template for user stories" \
   --area-path "myproject\\Team A" \
@@ -289,34 +289,34 @@ ab template save user-story \
 **Using a Template:**
 ```bash
 # Create a work item from a template
-ab create --template bug-report --title "Button not working"
+azb create --template bug-report --title "Button not working"
 
 # Create from template (interactive mode will use template defaults)
-ab create -t user-story
+azb create -t user-story
 ```
 
 **Managing Templates:**
 ```bash
 # List all templates
-ab template list
+azb template list
 
 # Show template details
-ab template show bug-report
+azb template show bug-report
 
 # Show template in JSON format
-ab template show bug-report --format json
+azb template show bug-report --format json
 
 # Edit a template in your editor ($EDITOR or $VISUAL)
-ab template edit bug-report
+azb template edit bug-report
 
 # Show where templates are stored
-ab template path
+azb template path
 
 # Show path to a specific template
-ab template path bug-report
+azb template path bug-report
 
 # Delete a template
-ab template delete bug-report
+azb template delete bug-report
 ```
 
 **Template Storage:**
@@ -366,37 +366,37 @@ relations:
 **Creating Work Items with Relationships:**
 ```bash
 # Create a child work item linked to a parent
-ab create --type Task --title "Fix bug" --parent-id 12345
+azb create --type Task --title "Fix bug" --parent-id 12345
 
 # Create from template with parent and children
 # (creates parent + all children in one command)
-ab create --template my-story-with-tasks
+azb create --template my-story-with-tasks
 
 # Override parent ID from template
-ab create --template my-template --parent-id 99999
+azb create --template my-template --parent-id 99999
 ```
 
 ### Query Commands
 
 ```bash
 # List all saved queries
-ab query list
-ab query list --format json
+azb query list
+azb query list --format json
 
 # Show query details (including WIQL)
-ab query show "Assigned to me"
-ab query show "Sprint Backlog" --format json
+azb query show "Assigned to me"
+azb query show "Sprint Backlog" --format json
 
 # Run a saved query
-ab query run "Assigned to me"
-ab query run "My Bugs" --limit 20
-ab query run "Sprint Backlog" --format json
-ab query run "Active Tasks" --format ids
+azb query run "Assigned to me"
+azb query run "My Bugs" --limit 20
+azb query run "Sprint Backlog" --format json
+azb query run "Active Tasks" --format ids
 ```
 
 **Query List Example:**
 ```
-$ ab query list
+$ azb query list
 NAME                                                 TYPE    PATH
 Shared Queries                                       Folder  Shared Queries
   Open Work                                          Query   Shared Queries/Open Work
@@ -409,7 +409,7 @@ My Queries                                           Folder  My Queries
 
 **Query Show Example:**
 ```
-$ ab query show "Assigned to me"
+$ azb query show "Assigned to me"
 Name: Assigned to me
 Path: My Queries/Assigned to me
 ID: cddeffc6-ad80-4a71-a6ae-0df0a6be03ec
@@ -422,7 +422,7 @@ from WorkItems where [System.AssignedTo] = @me order by [System.ChangedDate] des
 
 **Query Run Example:**
 ```
-$ ab query run "Assigned to me" --limit 5
+$ azb query run "Assigned to me" --limit 5
 ID       Title                                              Type            State           Assigned To
 ------------------------------------------------------------------------------------------------------------------------
 73807    Fix login bug                                      Bug             Active          Casey Kawamura
@@ -434,19 +434,19 @@ ID       Title                                              Type            Stat
 
 ```bash
 # Delete a single work item (with confirmation)
-ab delete 1234
+azb delete 1234
 
 # Delete multiple work items
-ab delete 1234,1235,1236
+azb delete 1234,1235,1236
 
 # Delete without confirmation (for scripting)
-ab delete 1234 --force
-ab delete 1234,1235,1236 -f
+azb delete 1234 --force
+azb delete 1234,1235,1236 -f
 ```
 
 **Confirmation Prompt:**
 ```
-$ ab delete 1234
+$ azb delete 1234
 The following work items will be deleted:
   - ID 1234: Fix login bug
 
@@ -463,10 +463,10 @@ Use the inspect command to discover required fields for your organization:
 
 ```bash
 # Inspect a work item type to see all fields
-ab inspect "User Story"
+azb inspect "User Story"
 
 # See what fields are required for bugs
-ab inspect Bug
+azb inspect Bug
 ```
 
 This helps you understand what custom fields your organization requires, which you can then include in templates.
@@ -484,7 +484,7 @@ All commands support these global flags:
 Example:
 
 ```bash
-ab list --org myorg --project myproject
+azb list --org myorg --project myproject
 ```
 
 ## Configuration File
@@ -557,15 +557,15 @@ go test ./...
 
 ### "not authenticated" error
 
-Run `ab auth login` to authenticate with your PAT.
+Run `azb auth login` to authenticate with your PAT.
 
 ### "organization not configured" error
 
-Run `ab config set organization <org>` to set your organization.
+Run `azb config set organization <org>` to set your organization.
 
 ### "project not configured" error
 
-Run `ab config set project <project>` to set your project.
+Run `azb config set project <project>` to set your project.
 
 ### Invalid PAT
 

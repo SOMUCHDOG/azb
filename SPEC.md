@@ -92,19 +92,19 @@ default_view: "assigned-to-me"
 #### Commands
 ```bash
 # Configure organization and project
-ab config set organization <org>
-ab config set project <project>
+azb config set organization <org>
+azb config set project <project>
 
 # Authenticate
-ab auth login
-ab auth login --pat <token>
-ab auth status
-ab auth logout
+azb auth login
+azb auth login --pat <token>
+azb auth status
+azb auth logout
 ```
 
 ### 2. TUI Dashboard
 
-Launch with: `ab dashboard` or `ab`
+Launch with: `azb dashboard` or `azb`
 
 #### Layout
 ```
@@ -165,52 +165,52 @@ Launch with: `ab dashboard` or `ab`
 #### List Work Items
 ```bash
 # List assigned to me
-ab list
+azb list
 
 # List with filters
-ab list --state Active --assigned-to @me
-ab list --type Bug --sprint "Sprint 42"
-ab list --area-path "myproject\\Team A"
-ab list --tags "urgent,security"
+azb list --state Active --assigned-to @me
+azb list --type Bug --sprint "Sprint 42"
+azb list --area-path "myproject\\Team A"
+azb list --tags "urgent,security"
 
 # Output formats
-ab list --format table  # default
-ab list --format json
-ab list --format csv
-ab list --format ids    # just IDs for scripting
+azb list --format table  # default
+azb list --format json
+azb list --format csv
+azb list --format ids    # just IDs for scripting
 
 # Limit results
-ab list --limit 50
+azb list --limit 50
 ```
 
 #### Show Work Item
 ```bash
 # Show details
-ab show 1234
+azb show 1234
 
 # Show with comments
-ab show 1234 --comments
+azb show 1234 --comments
 
 # Show with history
-ab show 1234 --history
+azb show 1234 --history
 
 # Output format
-ab show 1234 --format json
+azb show 1234 --format json
 ```
 
 #### Create Work Item
 ```bash
 # Interactive mode
-ab create
+azb create
 
 # Command line mode
-ab create --type Bug --title "Fix login issue" --assigned-to @me
+azb create --type Bug --title "Fix login issue" --assigned-to @me
 
 # From template
-ab create --template bug-template.yaml
+azb create --template bug-template.yaml
 
 # With full details
-ab create \
+azb create \
   --type "User Story" \
   --title "Implement dashboard" \
   --description "Create a new dashboard for analytics" \
@@ -221,65 +221,65 @@ ab create \
   --tags "frontend,dashboard"
 
 # From file
-ab create --from-file workitem.json
+azb create --from-file workitem.json
 ```
 
 #### Update Work Item
 ```bash
 # Update specific fields
-ab update 1234 --state Active
-ab update 1234 --assigned-to "jane@example.com"
-ab update 1234 --title "New title"
-ab update 1234 --add-tag "urgent"
-ab update 1234 --remove-tag "low-priority"
+azb update 1234 --state Active
+azb update 1234 --assigned-to "jane@example.com"
+azb update 1234 --title "New title"
+azb update 1234 --add-tag "urgent"
+azb update 1234 --remove-tag "low-priority"
 
 # Interactive edit
-ab update 1234
+azb update 1234
 
 # Bulk update
-ab update 1234,1235,1236 --state Resolved
+azb update 1234,1235,1236 --state Resolved
 ```
 
 #### Delete Work Item
 ```bash
 # Delete single item
-ab delete 1234
+azb delete 1234
 
 # Delete multiple
-ab delete 1234,1235,1236
+azb delete 1234,1235,1236
 
 # With confirmation
-ab delete 1234 --confirm
+azb delete 1234 --confirm
 
 # Skip confirmation
-ab delete 1234 --force
+azb delete 1234 --force
 ```
 
 #### Queries
 ```bash
 # List saved queries
-ab query list
+azb query list
 
 # Execute saved query
-ab query run "My Bugs"
+azb query run "My Bugs"
 
 # Execute shared query
-ab query run "Shared Queries/Team Backlog"
+azb query run "Shared Queries/Team Backlog"
 
 # Create query (opens editor)
-ab query create
+azb query create
 
 # Delete query
-ab query delete "My Query"
+azb query delete "My Query"
 ```
 
 #### Batch Operations
 ```bash
 # Pipe work item IDs
-ab list --type Bug --format ids | xargs ab update --state Resolved
+azb list --type Bug --format ids | xargs azb update --state Resolved
 
 # From file
-cat work-items.txt | xargs ab delete --force
+cat work-items.txt | xargs azb delete --force
 ```
 
 ### 4. Work Item Types
@@ -328,19 +328,19 @@ aliases:
   close: update --state Closed --force
 
 # Usage
-ab my-bugs
-ab sprint-tasks
-ab close 1234
+azb my-bugs
+azb sprint-tasks
+azb close 1234
 ```
 
 #### Export & Import
 ```bash
 # Export to various formats
-ab export --query "My Bugs" --format csv > bugs.csv
-ab export --query "Sprint Backlog" --format json > backlog.json
+azb export --query "My Bugs" --format csv > bugs.csv
+azb export --query "Sprint Backlog" --format json > backlog.json
 
 # Import work items
-ab import workitems.json
+azb import workitems.json
 ```
 
 ### 6. Caching & Offline Support
@@ -354,20 +354,20 @@ ab import workitems.json
 #### Cache Commands
 ```bash
 # Clear cache
-ab cache clear
+azb cache clear
 
 # Refresh cache
-ab cache refresh
+azb cache refresh
 
 # Show cache status
-ab cache status
+azb cache status
 ```
 
 ## User Experience
 
 ### First Run Experience
 ```bash
-$ ab
+$ azb
 Welcome to Azure Boards CLI!
 
 Let's get you set up.
@@ -386,7 +386,7 @@ PAT: ****************************************************
 ✓ Authentication successful
 ✓ Configuration saved to ~/.azure-boards-cli/config.yaml
 
-Run 'ab' to launch the dashboard or 'ab --help' for available commands.
+Run 'azb' to launch the dashboard or 'azb --help' for available commands.
 ```
 
 ### Error Handling
@@ -442,9 +442,9 @@ Run 'ab' to launch the dashboard or 'ab --help' for available commands.
 
 ### Interactive Help
 ```bash
-ab --help
-ab <command> --help
-ab dashboard  # Press '?' for help
+azb --help
+azb <command> --help
+azb dashboard  # Press '?' for help
 ```
 
 ## Release & Distribution

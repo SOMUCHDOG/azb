@@ -50,7 +50,7 @@ func GetToken() (string, error) {
 
 	// Check if token file exists
 	if _, err := os.Stat(tokenPath); os.IsNotExist(err) {
-		return "", fmt.Errorf("not authenticated. Run 'ab auth login' to authenticate")
+		return "", fmt.Errorf("not authenticated. Run 'azb auth login' to authenticate")
 	}
 
 	// Read token from file
@@ -61,7 +61,7 @@ func GetToken() (string, error) {
 
 	token := strings.TrimSpace(string(tokenBytes))
 	if token == "" {
-		return "", fmt.Errorf("token file is empty. Run 'ab auth login' to authenticate")
+		return "", fmt.Errorf("token file is empty. Run 'azb auth login' to authenticate")
 	}
 
 	return token, nil

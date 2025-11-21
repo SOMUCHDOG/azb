@@ -42,7 +42,7 @@ func runTemplateEdit(cmd *cobra.Command, args []string) error {
 	}
 
 	if !exists {
-		return fmt.Errorf("template '%s' not found. Use 'ab template init %s <type>' to create it", name, name)
+		return fmt.Errorf("template '%s' not found. Use 'azb template init %s <type>' to create it", name, name)
 	}
 
 	// Get template path
@@ -71,7 +71,7 @@ func runTemplateEdit(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("\n✓ Template '%s' updated\n", name)
-	fmt.Println("\nUse 'ab template show %s' to view the changes", name)
+	fmt.Println("\nUse 'azb template show %s' to view the changes", name)
 
 	return nil
 }

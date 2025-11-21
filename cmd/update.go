@@ -82,7 +82,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		org = cfg.Organization
 	}
 	if org == "" {
-		return fmt.Errorf("organization not configured. Run 'ab config set organization <org>'")
+		return fmt.Errorf("organization not configured. Run 'azb config set organization <org>'")
 	}
 
 	project := viper.GetString("project")
@@ -90,7 +90,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		project = cfg.Project
 	}
 	if project == "" {
-		return fmt.Errorf("project not configured. Run 'ab config set project <project>'")
+		return fmt.Errorf("project not configured. Run 'azb config set project <project>'")
 	}
 
 	// Build organization URL

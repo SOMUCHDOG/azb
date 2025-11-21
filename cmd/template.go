@@ -91,7 +91,7 @@ func runTemplateList(cmd *cobra.Command, args []string) error {
 
 	if len(templatesList) == 0 {
 		fmt.Println("No templates found")
-		fmt.Println("\nCreate a template with: ab template save <name> --type <type> [options]")
+		fmt.Println("\nCreate a template with: azb template save <name> --type <type> [options]")
 		return nil
 	}
 
@@ -111,8 +111,8 @@ func runTemplateList(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Total: %d templates\n", len(templatesList))
-	fmt.Println("\nUse 'ab template show <name>' to view template details")
-	fmt.Println("Use 'ab create --template <name>' to create a work item from a template")
+	fmt.Println("\nUse 'azb template show <name>' to view template details")
+	fmt.Println("Use 'azb create --template <name>' to create a work item from a template")
 
 	return nil
 }
@@ -232,7 +232,7 @@ func runTemplateSave(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("✓ Template '%s' saved\n", name)
-	fmt.Printf("\nUse 'ab create --template %s' to create a work item from this template\n", name)
+	fmt.Printf("\nUse 'azb create --template %s' to create a work item from this template\n", name)
 
 	return nil
 }
