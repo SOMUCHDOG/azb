@@ -194,9 +194,13 @@ func (t *WorkItemsTab) View() string {
 	}
 
 	if t.showDetails {
-		detailsHeader := TitleStyle.Render("Work Item Details")
-		detailsView := BoxStyle.Render(t.viewport.View())
-		return lipgloss.JoinVertical(lipgloss.Left, t.list.View(), detailsHeader, detailsView)
+		listView := t.list.View()
+		detailsPane := RenderDetailsPane("Work Item Details", t.viewport.View())
+		combined := lipgloss.JoinVertical(lipgloss.Left, listView, detailsPane)
+
+		// Ensure total height doesn't exceed ContentHeight()
+		maxHeight := t.ContentHeight()
+		return lipgloss.NewStyle().MaxHeight(maxHeight).Render(combined)
 	}
 
 	return t.list.View()

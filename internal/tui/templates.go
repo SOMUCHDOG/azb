@@ -38,22 +38,18 @@ func NewTemplatesTab(client *api.Client, width, height int) *TemplatesTab {
 		loading:         true,
 	}
 
-	// Split view: list on left, preview on right
-	listWidth := width / 2
-	previewWidth := width - listWidth - 2
-
-	// Initialize list
-	tab.list = list.New([]list.Item{}, templateDelegate{expandedFolders: tab.expandedFolders}, listWidth, tab.ContentHeight())
+	// Initialize list (full width)
+	tab.list = list.New([]list.Item{}, templateDelegate{expandedFolders: tab.expandedFolders}, width, tab.ContentHeight())
 	tab.list.Title = "Templates"
-	tab.list.SetShowStatusBar(false)
+	tab.list.SetShowStatusBar(true)
 	tab.list.SetFilteringEnabled(true)
 	tab.list.Styles.Title = lipgloss.NewStyle().
 		Background(lipgloss.Color(ColorSecondary)).
 		Foreground(lipgloss.Color(ColorYellow)).
 		Padding(0, 1)
 
-	// Initialize preview
-	tab.preview = viewport.New(previewWidth, tab.ContentHeight()-2)
+	// Initialize preview viewport (will show at bottom when template selected)
+	tab.preview = viewport.New(width-4, tab.ContentHeight()/2-5)
 
 	return tab
 }
@@ -119,22 +115,40 @@ func (t *TemplatesTab) View() string {
 		return RenderErrorWithRetry(t.err)
 	}
 
-	// Split view: list on left, preview on right
-	previewBox := BoxStyle.Render(t.preview.View())
-	return lipgloss.JoinHorizontal(lipgloss.Top, t.list.View(), previewBox)
+	// Show preview at bottom when template is selected
+	if t.selectedTemplate != nil {
+		listView := t.list.View()
+		previewPane := RenderDetailsPane("Template Preview", t.preview.View())
+		combined := lipgloss.JoinVertical(lipgloss.Left, listView, previewPane)
+
+		// Ensure total height doesn't exceed ContentHeight()
+		maxHeight := t.ContentHeight()
+		return lipgloss.NewStyle().MaxHeight(maxHeight).Render(combined)
+	}
+
+	return t.list.View()
 }
 
 // SetSize updates the tab dimensions
 func (t *TemplatesTab) SetSize(width, height int) {
 	t.TabBase.SetSize(width, height)
+	t.updateSizes()
+}
 
-	listWidth := width / 2
-	previewWidth := width - listWidth - 2
-
-	t.list.SetSize(listWidth, t.ContentHeight())
-	t.preview.Width = previewWidth
-	// Account for BoxStyle border (2) + padding (2) = 4 lines
-	t.preview.Height = t.ContentHeight() - 4
+// updateSizes updates list and viewport sizes based on whether preview is shown
+func (t *TemplatesTab) updateSizes() {
+	if t.selectedTemplate != nil {
+		// Split view: list on top, preview on bottom
+		listHeight := t.ContentHeight() / 2
+		previewHeight := t.ContentHeight() - listHeight
+		t.list.SetSize(t.Width(), listHeight)
+		t.preview.Width = t.Width() - 4
+		// Account for header (1) + BoxStyle border (2) + padding (2) = 5 lines
+		t.preview.Height = previewHeight - 5
+	} else {
+		// Full height for list when no preview
+		t.list.SetSize(t.Width(), t.ContentHeight())
+	}
 }
 
 // handleEnter toggles folder expansion or creates work item from template
@@ -161,11 +175,16 @@ func (t *TemplatesTab) updatePreview() {
 	selectedItem := t.list.SelectedItem()
 	if item, ok := selectedItem.(templateListItem); ok {
 		if item.IsDir {
+			t.selectedTemplate = nil
 			t.preview.SetContent(t.formatFolderPreview(item))
 		} else if item.Template != nil {
+			t.selectedTemplate = item.Template
 			t.preview.SetContent(t.formatTemplatePreview(item.Template))
 		}
+	} else {
+		t.selectedTemplate = nil
 	}
+	t.updateSizes()
 }
 
 // rebuildList rebuilds the list with current expanded state
