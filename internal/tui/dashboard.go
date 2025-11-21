@@ -5,17 +5,22 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/casey/azure-boards-cli/internal/api"
+	"github.com/casey/azure-boards-cli/internal/templates"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/workitemtracking"
+	"gopkg.in/yaml.v3"
 )
 
 var (
@@ -147,7 +152,7 @@ type Model struct {
 	err              error
 
 	// Tab navigation
-	currentTab int      // 0=queries, 1=workitems, 2=pipelines, 3=agents
+	currentTab int      // 0=queries, 1=workitems, 2=templates, 3=pipelines, 4=agents
 	tabs       []string // Tab names
 
 	// Queries tab
@@ -155,6 +160,31 @@ type Model struct {
 	queryList       list.Model
 	loadingQueries  bool
 	expandedFolders map[string]bool // Track which folders are expanded by their path
+
+	// Templates tab
+	templates               []*templates.TemplateNode
+	templateList            list.Model
+	loadingTemplates        bool
+	expandedTemplateFolders map[string]bool // Track which template folders are expanded
+	templatePreview         viewport.Model  // Preview viewport for template content
+	selectedTemplate        *templates.Template
+
+	// Input mode for prompts
+	inputMode        bool        // True when showing an input prompt
+	inputPrompt      string      // The prompt message
+	inputField       textinput.Model
+	inputAction      string      // What action to perform with the input (copy-template, create-folder, etc)
+	inputContext     interface{} // Context data for the input action
+
+	// Confirmation mode for destructive operations
+	confirmationMode   bool   // True when showing a confirmation dialog
+	confirmationPrompt string // The confirmation message
+	confirmationAction string // What action to confirm (delete-work-item, etc)
+	confirmationContext interface{} // Context for confirmation action
+
+	// Notification system
+	notification        string // Notification message to display
+	notificationIsError bool   // True if notification is an error (red), false for success (green)
 }
 
 // relationshipInfo stores formatted relationship data for a work item
@@ -301,6 +331,72 @@ type workItemItem struct {
 
 func (i workItemItem) FilterValue() string { return i.Title }
 
+// templateListItem wraps a template node for the list
+type templateListItem struct {
+	Name     string
+	Path     string
+	IsDir    bool
+	Depth    int
+	Template *templates.Template
+	node     *templates.TemplateNode
+}
+
+func (i templateListItem) FilterValue() string { return i.Name }
+
+// templateDelegate implements list.ItemDelegate for template items
+type templateDelegate struct {
+	expandedFolders map[string]bool
+}
+
+func (d templateDelegate) Height() int                             { return 1 }
+func (d templateDelegate) Spacing() int                            { return 0 }
+func (d templateDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
+func (d templateDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
+	templateItem, ok := item.(templateListItem)
+	if !ok {
+		return
+	}
+
+	var (
+		normalStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
+		selectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
+		folderStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
+		templateStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
+	)
+
+	indent := strings.Repeat("  ", templateItem.Depth)
+	icon := ""
+	nameStyle := normalStyle
+
+	if templateItem.IsDir {
+		// Check if folder is expanded
+		expanded := d.expandedFolders[templateItem.Path]
+		if expanded {
+			icon = "▼ "
+		} else {
+			icon = "▶ "
+		}
+		nameStyle = folderStyle
+	} else {
+		icon = "  📄 "
+		nameStyle = templateStyle
+	}
+
+	name := templateItem.Name
+	if len(name) > 60 {
+		name = name[:57] + "..."
+	}
+
+	var output string
+	if index == m.Index() {
+		output = selectedStyle.Render(fmt.Sprintf("> %s%s%s", indent, icon, name))
+	} else {
+		output = nameStyle.Render(fmt.Sprintf("  %s%s%s", indent, icon, name))
+	}
+
+	fmt.Fprint(w, output)
+}
+
 // NewModel creates a new dashboard model
 func NewModel(client *api.Client) Model {
 	keys := DefaultKeyMap()
@@ -330,8 +426,29 @@ func NewModel(client *api.Client) Model {
 		Foreground(lipgloss.Color("230")).
 		Padding(0, 1)
 
+	// Create templates list with delegate that tracks expanded folders
+	expandedTemplateFolders := make(map[string]bool)
+	templateItems := []list.Item{}
+	templateDel := templateDelegate{expandedFolders: expandedTemplateFolders}
+	tl := list.New(templateItems, templateDel, 0, 0)
+	tl.Title = "Templates"
+	tl.SetShowStatusBar(true)
+	tl.SetFilteringEnabled(true)
+	tl.Styles.Title = lipgloss.NewStyle().
+		Background(lipgloss.Color("62")).
+		Foreground(lipgloss.Color("230")).
+		Padding(0, 1)
+
 	// Create viewport for details
 	vp := viewport.New(0, 0)
+
+	// Create viewport for template preview
+	templateVP := viewport.New(0, 0)
+
+	// Create text input for prompts
+	ti := textinput.New()
+	ti.Placeholder = "Enter name..."
+	ti.CharLimit = 100
 
 	return Model{
 		client:           client,
@@ -347,13 +464,25 @@ func NewModel(client *api.Client) Model {
 
 		// Initialize tabs
 		currentTab: 1, // Start on "Work Items" tab (index 1)
-		tabs:       []string{"Queries", "Work Items", "Pipelines", "Agents"},
+		tabs:       []string{"Queries", "Work Items", "Templates", "Pipelines", "Agents"},
 
 		// Initialize queries
 		queries:         []workitemtracking.QueryHierarchyItem{},
 		queryList:       ql,
 		loadingQueries:  true,
 		expandedFolders: make(map[string]bool),
+
+		// Initialize templates
+		templates:               []*templates.TemplateNode{},
+		templateList:            tl,
+		loadingTemplates:        true,
+		expandedTemplateFolders: expandedTemplateFolders,
+		templatePreview:         templateVP,
+
+		// Initialize input mode
+		inputMode:   false,
+		inputField:  ti,
+		inputAction: "",
 	}
 }
 
@@ -362,6 +491,7 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		fetchWorkItems(m.client),
 		fetchQueries(m.client),
+		fetchTemplates(),
 		tea.EnterAltScreen,
 	)
 }
@@ -383,6 +513,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update query list size
 		m.queryList.SetSize(m.width, m.height-verticalMargins)
 
+		// Update template list and preview (split view)
+		templateListWidth := m.width / 2
+		templatePreviewWidth := m.width - templateListWidth - 2
+		m.templateList.SetSize(templateListWidth, m.height-verticalMargins)
+		m.templatePreview.Width = templatePreviewWidth
+		m.templatePreview.Height = m.height - verticalMargins - 2
+
 		if m.showDetails {
 			// Split view: list on top, details on bottom
 			listHeight := (m.height - verticalMargins) / 2
@@ -401,6 +538,44 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
+		// Handle confirmation mode first
+		if m.confirmationMode {
+			switch msg.String() {
+			case "y", "Y":
+				// Confirm the action
+				m.confirmationMode = false
+				return m, m.handleConfirmation(true)
+			case "n", "N", "esc":
+				// Cancel the action
+				m.confirmationMode = false
+				return m, nil
+			}
+			return m, nil
+		}
+
+		// Handle input mode
+		if m.inputMode {
+			switch msg.Type {
+			case tea.KeyEnter:
+				// Process the input
+				value := strings.TrimSpace(m.inputField.Value())
+				if value != "" {
+					return m, m.handleInputSubmit(value)
+				}
+				return m, nil
+			case tea.KeyEsc:
+				// Cancel input mode
+				m.inputMode = false
+				m.inputField.Blur()
+				return m, nil
+			default:
+				// Update the input field
+				var cmd tea.Cmd
+				m.inputField, cmd = m.inputField.Update(msg)
+				return m, cmd
+			}
+		}
+
 		// Handle quit
 		if key.Matches(msg, m.keys.Quit) {
 			return m, tea.Quit
@@ -501,6 +676,164 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.list.SetSize(m.width, m.height-verticalMargins)
 				}
 				return m, nil
+			} else if m.currentTab == 2 {
+				// Templates tab - toggle folder
+				selectedItem := m.templateList.SelectedItem()
+				if item, ok := selectedItem.(templateListItem); ok {
+					if item.IsDir {
+						// Toggle folder expand/collapse
+						m.expandedTemplateFolders[item.Path] = !m.expandedTemplateFolders[item.Path]
+						logger.Printf("Toggling template folder '%s' to expanded=%v", item.Name, m.expandedTemplateFolders[item.Path])
+
+						// Rebuild the template list with new expanded state and delegate
+						items := m.flattenTemplates(m.templates, 0)
+						templateDel := templateDelegate{expandedFolders: m.expandedTemplateFolders}
+						m.templateList = list.New(items, templateDel, m.width, m.height-6)
+						m.templateList.Title = "Templates"
+						m.templateList.SetShowStatusBar(true)
+						m.templateList.SetFilteringEnabled(true)
+						m.templateList.Styles.Title = lipgloss.NewStyle().
+							Background(lipgloss.Color("62")).
+							Foreground(lipgloss.Color("230")).
+							Padding(0, 1)
+					} else {
+						// Create work item from template
+						logger.Printf("Creating work item from template: %s", item.Name)
+						return m, createFromTemplate(m.client, item.Template, item.Path)
+					}
+				}
+				return m, nil
+			}
+		}
+
+		// Handle Edit key for templates
+		if key.Matches(msg, m.keys.Edit) && m.currentTab == 2 && !m.inputMode {
+			selectedItem := m.templateList.SelectedItem()
+			if item, ok := selectedItem.(templateListItem); ok {
+				if !item.IsDir {
+					logger.Printf("Editing template: %s", item.Name)
+					return m, editTemplate(item.Path)
+				}
+			}
+			return m, nil
+		}
+
+		// Handle Copy key for templates (c)
+		if msg.String() == "c" && m.currentTab == 2 && !m.inputMode {
+			selectedItem := m.templateList.SelectedItem()
+			if item, ok := selectedItem.(templateListItem); ok {
+				if !item.IsDir {
+					logger.Printf("Copying template: %s", item.Name)
+					m.inputMode = true
+					m.inputPrompt = fmt.Sprintf("Copy '%s' as:", item.Name)
+					m.inputAction = "copy-template"
+					m.inputContext = item
+					m.inputField.SetValue("")
+					m.inputField.Focus()
+					return m, textinput.Blink
+				}
+			}
+			return m, nil
+		}
+
+		// Handle New folder key (f)
+		if msg.String() == "f" && m.currentTab == 2 && !m.inputMode {
+			selectedItem := m.templateList.SelectedItem()
+			var parentPath string
+
+			if item, ok := selectedItem.(templateListItem); ok {
+				if item.IsDir {
+					// Creating folder inside highlighted folder
+					parentPath = item.Path
+					logger.Printf("Creating new folder inside: %s", parentPath)
+				} else {
+					// Creating folder in same directory as highlighted file
+					parentPath = item.node.ParentPath
+					logger.Printf("Creating new folder in parent: %s", parentPath)
+				}
+			} else {
+				// Creating folder at root
+				parentPath = ""
+				logger.Println("Creating new folder at root")
+			}
+
+			m.inputMode = true
+			m.inputPrompt = "New folder name:"
+			m.inputAction = "create-folder"
+			m.inputContext = parentPath
+			m.inputField.SetValue("")
+			m.inputField.Focus()
+			return m, textinput.Blink
+		}
+
+		// Handle New template key (n) - creates from basic template
+		if msg.String() == "n" && m.currentTab == 2 && !m.inputMode {
+			selectedItem := m.templateList.SelectedItem()
+			var parentPath string
+
+			if item, ok := selectedItem.(templateListItem); ok {
+				if item.IsDir {
+					// Creating template inside highlighted folder
+					parentPath = item.Path
+					logger.Printf("Creating new template inside: %s", parentPath)
+				} else {
+					// Creating template in same directory as highlighted file
+					parentPath = item.node.ParentPath
+					logger.Printf("Creating new template in parent: %s", parentPath)
+				}
+			} else {
+				// Creating template at root
+				parentPath = ""
+				logger.Println("Creating new template at root")
+			}
+
+			m.inputMode = true
+			m.inputPrompt = "New template name:"
+			m.inputAction = "create-template"
+			m.inputContext = parentPath
+			m.inputField.SetValue("")
+			m.inputField.Focus()
+			return m, textinput.Blink
+		}
+
+		// Handle Delete key for work items (d)
+		if msg.String() == "d" && m.currentTab == 1 && !m.inputMode && !m.confirmationMode {
+			selectedItem := m.list.SelectedItem()
+			if item, ok := selectedItem.(workItemItem); ok {
+				m.confirmationMode = true
+				m.confirmationPrompt = fmt.Sprintf("Delete work item #%d: %s?", item.ID, item.Title)
+				m.confirmationAction = "delete-work-item"
+				m.confirmationContext = item.ID
+				return m, nil
+			}
+		}
+
+		// Handle Create template from work item (n)
+		if msg.String() == "n" && m.currentTab == 1 && !m.inputMode && !m.confirmationMode {
+			selectedItem := m.list.SelectedItem()
+			if item, ok := selectedItem.(workItemItem); ok {
+				m.inputMode = true
+				m.inputPrompt = "Save work item as template (enter name):"
+				m.inputAction = "save-as-template"
+				m.inputContext = item.workItem
+				m.inputField.SetValue("")
+				m.inputField.Focus()
+				return m, textinput.Blink
+			}
+		}
+
+		// Handle Update key for work items (u)
+		if msg.String() == "u" && m.currentTab == 1 && !m.inputMode && !m.confirmationMode {
+			selectedItem := m.list.SelectedItem()
+			if item, ok := selectedItem.(workItemItem); ok {
+				// For now, let's allow updating the title
+				m.inputMode = true
+				m.inputPrompt = fmt.Sprintf("Update title for #%d:", item.ID)
+				m.inputAction = "update-work-item-title"
+				m.inputContext = item.ID
+				m.inputField.SetValue(item.Title)
+				m.inputField.Focus()
+				return m, textinput.Blink
 			}
 		}
 
@@ -532,6 +865,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.queryList.SetItems(items)
 		logger.Printf("Query list populated with %d items", len(items))
 
+	case templatesMsg:
+		m.loadingTemplates = false
+		m.templates = msg.templates
+		items := m.flattenTemplates(msg.templates, 0)
+		m.templateList.SetItems(items)
+		logger.Printf("Template list populated with %d items", len(items))
+
+		// Initialize preview with first item if available
+		if len(items) > 0 {
+			if item, ok := items[0].(templateListItem); ok {
+				if !item.IsDir && item.Template != nil {
+					m.selectedTemplate = item.Template
+					m.templatePreview.SetContent(m.formatTemplatePreview(item.Template))
+					m.templatePreview.GotoTop()
+				} else if item.IsDir {
+					m.selectedTemplate = nil
+					m.templatePreview.SetContent(m.formatFolderPreview(item))
+					m.templatePreview.GotoTop()
+				}
+			}
+		}
+
 	case relationshipsLoadedMsg:
 		m.loadingRelations = false
 		m.relationshipData[msg.workItemID] = msg.relInfo
@@ -544,6 +899,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case errMsg:
 		m.loading = false
 		m.err = msg.err
+
+	case successMsg:
+		logger.Printf("SUCCESS NOTIFICATION: %s", msg.message)
+		m.notification = msg.message
+		m.notificationIsError = false
+		return m, clearNotificationAfterDelay()
+
+	case errorNotificationMsg:
+		logger.Printf("ERROR NOTIFICATION: %s", msg.message)
+		m.notification = msg.message
+		m.notificationIsError = true
+		return m, clearNotificationAfterDelay()
+
+	case clearNotificationMsg:
+		logger.Printf("CLEARING NOTIFICATION")
+		m.notification = ""
+		m.notificationIsError = false
 	}
 
 	// Update appropriate list based on current tab
@@ -585,9 +957,89 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport, cmd = m.viewport.Update(msg)
 			cmds = append(cmds, cmd)
 		}
+	} else if m.currentTab == 2 {
+		// Update template list (unless in input mode)
+		if !m.inputMode {
+			prevIndex := m.templateList.Index()
+			m.templateList, cmd = m.templateList.Update(msg)
+			cmds = append(cmds, cmd)
+
+			// Update preview if selection changed
+			if m.templateList.Index() != prevIndex && len(m.templateList.Items()) > 0 {
+				selectedItem := m.templateList.SelectedItem()
+				if item, ok := selectedItem.(templateListItem); ok {
+					if !item.IsDir && item.Template != nil {
+						m.selectedTemplate = item.Template
+						m.templatePreview.SetContent(m.formatTemplatePreview(item.Template))
+						m.templatePreview.GotoTop()
+					} else if item.IsDir {
+						m.selectedTemplate = nil
+						m.templatePreview.SetContent(m.formatFolderPreview(item))
+						m.templatePreview.GotoTop()
+					}
+				}
+			}
+
+			// Update viewport for scrolling preview
+			m.templatePreview, cmd = m.templatePreview.Update(msg)
+			cmds = append(cmds, cmd)
+		}
 	}
 
 	return m, tea.Batch(cmds...)
+}
+
+// handleInputSubmit processes the submitted input based on the current action
+func (m Model) handleInputSubmit(value string) tea.Cmd {
+	m.inputMode = false
+	m.inputField.Blur()
+
+	switch m.inputAction {
+	case "copy-template":
+		if item, ok := m.inputContext.(templateListItem); ok {
+			return copyTemplate(item, value)
+		}
+	case "create-folder":
+		parentPath := ""
+		if p, ok := m.inputContext.(string); ok {
+			parentPath = p
+		}
+		return createFolder(parentPath, value)
+	case "create-template":
+		parentPath := ""
+		if p, ok := m.inputContext.(string); ok {
+			parentPath = p
+		}
+		return createTemplate(parentPath, value)
+	case "save-as-template":
+		// Save work item as template
+		if wi, ok := m.inputContext.(workitemtracking.WorkItem); ok {
+			return saveWorkItemAsTemplate(m.client, wi, value)
+		}
+	case "update-work-item-title":
+		// Update work item title
+		if id, ok := m.inputContext.(int); ok {
+			return updateWorkItemTitle(m.client, id, value)
+		}
+	}
+
+	return nil
+}
+
+// handleConfirmation processes confirmation dialogs
+func (m Model) handleConfirmation(confirmed bool) tea.Cmd {
+	if !confirmed {
+		return nil
+	}
+
+	switch m.confirmationAction {
+	case "delete-work-item":
+		if id, ok := m.confirmationContext.(int); ok {
+			return deleteWorkItem(m.client, id)
+		}
+	}
+
+	return nil
 }
 
 // flattenQueries recursively flattens the query hierarchy into a list, respecting expanded state
@@ -629,6 +1081,34 @@ func (m Model) flattenQueries(queries []workitemtracking.QueryHierarchyItem, dep
 	return items
 }
 
+// flattenTemplates recursively flattens the template hierarchy into a list, respecting expanded state
+func (m Model) flattenTemplates(templateNodes []*templates.TemplateNode, depth int) []list.Item {
+	var items []list.Item
+
+	for _, node := range templateNodes {
+		// Always add the current item (folder or template)
+		items = append(items, templateListItem{
+			Name:     node.Name,
+			Path:     node.Path,
+			IsDir:    node.IsDir,
+			Depth:    depth,
+			Template: node.Template,
+			node:     node,
+		})
+
+		// Only add children if this is a directory AND it's expanded
+		if node.IsDir && node.Children != nil && len(node.Children) > 0 {
+			// Check if folder is expanded
+			if m.expandedTemplateFolders[node.Path] {
+				childItems := m.flattenTemplates(node.Children, depth+1)
+				items = append(items, childItems...)
+			}
+		}
+	}
+
+	return items
+}
+
 // View renders the dashboard
 func (m Model) View() string {
 	if m.loading {
@@ -648,60 +1128,117 @@ func (m Model) View() string {
 	switch m.currentTab {
 	case 0: // Queries tab
 		if m.loadingQueries {
-			return lipgloss.JoinVertical(
-				lipgloss.Left,
-				m.renderHeader(),
-				m.renderTabBar(),
-				"Loading queries...",
-				m.renderFooter(),
-			)
+			parts := []string{m.renderHeader(), m.renderTabBar(), "Loading queries..."}
+			if m.notification != "" {
+				logger.Printf("RENDERING NOTIFICATION: '%s' (isError: %v)", m.notification, m.notificationIsError)
+				parts = append(parts, m.renderNotification())
+			}
+			parts = append(parts, m.renderFooter())
+			return lipgloss.JoinVertical(lipgloss.Left, parts...)
 		}
-		return lipgloss.JoinVertical(
-			lipgloss.Left,
-			m.renderHeader(),
-			m.renderTabBar(),
-			m.queryList.View(),
-			m.renderFooter(),
-		)
+		parts := []string{m.renderHeader(), m.renderTabBar(), m.queryList.View()}
+		if m.notification != "" {
+			logger.Printf("RENDERING NOTIFICATION: '%s' (isError: %v)", m.notification, m.notificationIsError)
+			parts = append(parts, m.renderNotification())
+		}
+		parts = append(parts, m.renderFooter())
+		return lipgloss.JoinVertical(lipgloss.Left, parts...)
 	case 1: // Work Items tab
+		// Show confirmation dialog if in confirmation mode
+		if m.confirmationMode {
+			parts := []string{m.renderHeader(), m.renderTabBar(), m.list.View(), "", m.renderConfirmation()}
+			if m.notification != "" {
+				logger.Printf("RENDERING NOTIFICATION: '%s' (isError: %v)", m.notification, m.notificationIsError)
+				parts = append(parts, m.renderNotification())
+			}
+			parts = append(parts, m.renderFooter())
+			return lipgloss.JoinVertical(lipgloss.Left, parts...)
+		}
+		// Show input dialog if in input mode
+		if m.inputMode {
+			parts := []string{m.renderHeader(), m.renderTabBar(), m.list.View(), "", m.renderInputPrompt()}
+			if m.notification != "" {
+				logger.Printf("RENDERING NOTIFICATION: '%s' (isError: %v)", m.notification, m.notificationIsError)
+				parts = append(parts, m.renderNotification())
+			}
+			parts = append(parts, m.renderFooter())
+			return lipgloss.JoinVertical(lipgloss.Left, parts...)
+		}
+		// Show details view if selected
 		if m.showDetails {
-			return lipgloss.JoinVertical(
-				lipgloss.Left,
-				m.renderHeader(),
-				m.renderTabBar(),
-				m.list.View(),
-				m.renderDetailsHeader(),
+			parts := []string{m.renderHeader(), m.renderTabBar(), m.list.View(), m.renderDetailsHeader(),
 				lipgloss.NewStyle().
 					Border(lipgloss.RoundedBorder()).
 					BorderForeground(lipgloss.Color("62")).
 					Padding(1).
-					Render(m.viewport.View()),
-				m.renderFooter(),
-			)
+					Render(m.viewport.View())}
+			if m.notification != "" {
+				logger.Printf("RENDERING NOTIFICATION: '%s' (isError: %v)", m.notification, m.notificationIsError)
+				parts = append(parts, m.renderNotification())
+			}
+			parts = append(parts, m.renderFooter())
+			return lipgloss.JoinVertical(lipgloss.Left, parts...)
 		}
-		return lipgloss.JoinVertical(
-			lipgloss.Left,
-			m.renderHeader(),
-			m.renderTabBar(),
-			m.list.View(),
-			m.renderFooter(),
+		// Show normal list view
+		parts := []string{m.renderHeader(), m.renderTabBar(), m.list.View()}
+		if m.notification != "" {
+			logger.Printf("RENDERING NOTIFICATION: '%s' (isError: %v)", m.notification, m.notificationIsError)
+			parts = append(parts, m.renderNotification())
+		}
+		parts = append(parts, m.renderFooter())
+		return lipgloss.JoinVertical(lipgloss.Left, parts...)
+	case 2: // Templates tab
+		if m.loadingTemplates {
+			parts := []string{m.renderHeader(), m.renderTabBar(), "Loading templates..."}
+			if m.notification != "" {
+				logger.Printf("RENDERING NOTIFICATION: '%s' (isError: %v)", m.notification, m.notificationIsError)
+				parts = append(parts, m.renderNotification())
+			}
+			parts = append(parts, m.renderFooter())
+			return lipgloss.JoinVertical(lipgloss.Left, parts...)
+		}
+		splitView := lipgloss.JoinHorizontal(
+			lipgloss.Top,
+			m.templateList.View(),
+			lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color("62")).
+				Padding(1).
+				Render(m.templatePreview.View()),
 		)
-	case 2: // Pipelines tab
-		return lipgloss.JoinVertical(
-			lipgloss.Left,
-			m.renderHeader(),
-			m.renderTabBar(),
-			"Pipelines tab - Coming soon!",
-			m.renderFooter(),
-		)
-	case 3: // Agents tab
-		return lipgloss.JoinVertical(
-			lipgloss.Left,
-			m.renderHeader(),
-			m.renderTabBar(),
-			"Agents tab - Coming soon!",
-			m.renderFooter(),
-		)
+		if m.inputMode {
+			parts := []string{m.renderHeader(), m.renderTabBar(), splitView, "", m.renderInputPrompt()}
+			if m.notification != "" {
+				logger.Printf("RENDERING NOTIFICATION: '%s' (isError: %v)", m.notification, m.notificationIsError)
+				parts = append(parts, m.renderNotification())
+			}
+			parts = append(parts, m.renderFooter())
+			return lipgloss.JoinVertical(lipgloss.Left, parts...)
+		}
+		// Normal split view
+		parts := []string{m.renderHeader(), m.renderTabBar(), splitView}
+		if m.notification != "" {
+			logger.Printf("RENDERING NOTIFICATION: '%s' (isError: %v)", m.notification, m.notificationIsError)
+			parts = append(parts, m.renderNotification())
+		}
+		parts = append(parts, m.renderFooter())
+		return lipgloss.JoinVertical(lipgloss.Left, parts...)
+	case 3: // Pipelines tab
+		parts := []string{m.renderHeader(), m.renderTabBar()}
+		if m.notification != "" {
+			logger.Printf("RENDERING NOTIFICATION: '%s' (isError: %v)", m.notification, m.notificationIsError)
+			parts = append(parts, m.renderNotification())
+		}
+		parts = append(parts, "Pipelines tab - Coming soon!", m.renderFooter())
+		return lipgloss.JoinVertical(lipgloss.Left, parts...)
+	case 4: // Agents tab
+		parts := []string{m.renderHeader(), m.renderTabBar()}
+		if m.notification != "" {
+			logger.Printf("RENDERING NOTIFICATION: '%s' (isError: %v)", m.notification, m.notificationIsError)
+			parts = append(parts, m.renderNotification())
+		}
+		parts = append(parts, "Agents tab - Coming soon!", m.renderFooter())
+		return lipgloss.JoinVertical(lipgloss.Left, parts...)
 	}
 
 	return "Unknown tab"
@@ -761,10 +1298,97 @@ func (m Model) renderDetailsHeader() string {
 		Render(header)
 }
 
-func (m Model) renderFooter() string {
+func (m Model) renderInputPrompt() string {
+	prompt := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("6")).
+		Bold(true).
+		Render(m.inputPrompt)
+
+	input := m.inputField.View()
+
 	help := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("8")).
-		Render("↑/↓: navigate • enter: details • r: refresh • ?: help • q: quit")
+		Render("  (enter: submit • esc: cancel)")
+
+	content := fmt.Sprintf("%s\n%s%s", prompt, input, help)
+
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("6")).
+		Padding(1).
+		Width(m.width - 4).
+		Render(content)
+}
+
+func (m Model) renderConfirmation() string {
+	prompt := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("9")).
+		Bold(true).
+		Render(m.confirmationPrompt)
+
+	help := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("8")).
+		Render("  (y: yes • n/esc: no)")
+
+	content := fmt.Sprintf("%s\n%s", prompt, help)
+
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("9")).
+		Padding(1).
+		Width(m.width - 4).
+		Render(content)
+}
+
+func (m Model) renderNotification() string {
+	if m.notification == "" {
+		return ""
+	}
+
+	var color string
+	var icon string
+	if m.notificationIsError {
+		color = "9"  // Red
+		icon = "✗"
+	} else {
+		color = "2"  // Green
+		icon = "✓"
+	}
+
+	message := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(color)).
+		Bold(true).
+		Render(fmt.Sprintf("%s %s", icon, m.notification))
+
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(color)).
+		Padding(0, 1).
+		Render(message)
+}
+
+func (m Model) renderFooter() string {
+	var helpText string
+
+	// Context-sensitive help based on current tab
+	switch m.currentTab {
+	case 0: // Queries
+		helpText = "↑/↓: navigate • enter: toggle folder/execute query • tab: switch tabs • r: refresh • q: quit"
+	case 1: // Work Items
+		helpText = "↑/↓: navigate • enter: details • n: save as template • u: update • d: delete • tab: switch tabs • r: refresh • q: quit"
+	case 2: // Templates
+		helpText = "↑/↓: navigate • enter: create • e: edit • c: copy • n: new template • f: new folder • tab: switch tabs • q: quit"
+	case 3: // Pipelines
+		helpText = "tab: switch tabs • q: quit"
+	case 4: // Agents
+		helpText = "tab: switch tabs • q: quit"
+	default:
+		helpText = "↑/↓: navigate • enter: select • tab: switch tabs • q: quit"
+	}
+
+	help := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("8")).
+		Render(helpText)
 
 	return lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
@@ -913,6 +1537,98 @@ func cleanAssignedTo(assignedTo string) string {
 	return assignedTo
 }
 
+// formatTemplatePreview formats a template for preview display
+func (m Model) formatTemplatePreview(template *templates.Template) string {
+	var b strings.Builder
+
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("6"))
+
+	labelStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("8"))
+
+	b.WriteString(titleStyle.Render(template.Name) + "\n\n")
+
+	if template.Description != "" {
+		b.WriteString(template.Description + "\n\n")
+	}
+
+	b.WriteString(labelStyle.Render("Type: ") + template.Type + "\n\n")
+
+	if len(template.Fields) > 0 {
+		b.WriteString(labelStyle.Render("Fields:\n"))
+		for key, value := range template.Fields {
+			// Format field name to be more readable
+			fieldName := strings.TrimPrefix(key, "System.")
+			fieldName = strings.TrimPrefix(fieldName, "Microsoft.VSTS.Common.")
+			fieldName = strings.TrimPrefix(fieldName, "Custom.")
+
+			b.WriteString(fmt.Sprintf("  %s: %v\n", fieldName, value))
+		}
+		b.WriteString("\n")
+	}
+
+	if template.Relations != nil {
+		if template.Relations.ParentID > 0 {
+			b.WriteString(labelStyle.Render(fmt.Sprintf("Parent ID: %d\n\n", template.Relations.ParentID)))
+		}
+
+		if len(template.Relations.Children) > 0 {
+			b.WriteString(labelStyle.Render(fmt.Sprintf("Children: (%d)\n", len(template.Relations.Children))))
+			for i, child := range template.Relations.Children {
+				childType := child.Type
+				if childType == "" {
+					childType = "Task"
+				}
+				b.WriteString(fmt.Sprintf("  %d. [%s] %s\n", i+1, childType, child.Title))
+			}
+		}
+	}
+
+	return b.String()
+}
+
+// formatFolderPreview formats a folder for preview display
+func (m Model) formatFolderPreview(item templateListItem) string {
+	var b strings.Builder
+
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("6"))
+
+	labelStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("8"))
+
+	b.WriteString(titleStyle.Render("📁 " + item.Name) + "\n\n")
+
+	if item.node != nil && len(item.node.Children) > 0 {
+		b.WriteString(labelStyle.Render(fmt.Sprintf("Contents: %d items\n\n", len(item.node.Children))))
+
+		// Count folders and templates
+		folderCount := 0
+		templateCount := 0
+		for _, child := range item.node.Children {
+			if child.IsDir {
+				folderCount++
+			} else {
+				templateCount++
+			}
+		}
+
+		if folderCount > 0 {
+			b.WriteString(labelStyle.Render(fmt.Sprintf("Folders: %d\n", folderCount)))
+		}
+		if templateCount > 0 {
+			b.WriteString(labelStyle.Render(fmt.Sprintf("Templates: %d\n", templateCount)))
+		}
+	} else {
+		b.WriteString(labelStyle.Render("Empty folder\n"))
+	}
+
+	return b.String()
+}
+
 // Messages
 
 type workItemsMsg struct {
@@ -921,6 +1637,10 @@ type workItemsMsg struct {
 
 type queriesMsg struct {
 	queries []workitemtracking.QueryHierarchyItem
+}
+
+type templatesMsg struct {
+	templates []*templates.TemplateNode
 }
 
 type relationshipsLoadedMsg struct {
@@ -932,7 +1652,23 @@ type errMsg struct {
 	err error
 }
 
+type successMsg struct {
+	message string
+}
+
+type errorNotificationMsg struct {
+	message string
+}
+
+type clearNotificationMsg struct{}
+
 // Commands
+
+func clearNotificationAfterDelay() tea.Cmd {
+	return tea.Tick(3*time.Second, func(time.Time) tea.Msg {
+		return clearNotificationMsg{}
+	})
+}
 
 func loadRelationships(client *api.Client, wi workitemtracking.WorkItem) tea.Cmd {
 	return func() tea.Msg {
@@ -1078,5 +1814,585 @@ func executeQuery(client *api.Client, query workitemtracking.QueryHierarchyItem)
 
 		logger.Printf("Query returned %d work items", len(workItems))
 		return workItemsMsg{items: workItems}
+	}
+}
+
+func fetchTemplates() tea.Cmd {
+	return func() tea.Msg {
+		logger.Println("Fetching templates...")
+
+		templateNodes, err := templates.ListTree()
+		if err != nil {
+			logger.Printf("Error fetching templates: %v", err)
+			return errMsg{err: err}
+		}
+
+		logger.Printf("Loaded %d top-level template items", len(templateNodes))
+		return templatesMsg{templates: templateNodes}
+	}
+}
+
+func createFromTemplate(client *api.Client, template *templates.Template, templatePath string) tea.Cmd {
+	return func() tea.Msg {
+		if template == nil {
+			logger.Printf("Error: template is nil")
+			return errorNotificationMsg{message: "Template is nil"}
+		}
+
+		logger.Printf("Creating work item from template: %s (path: %s)", template.Name, templatePath)
+
+		// Build fields map from template
+		fields := make(map[string]interface{})
+
+		// Copy all template fields
+		for k, v := range template.Fields {
+			fields[k] = v
+		}
+
+		// Ensure we have required fields
+		if fields["System.Title"] == nil || fields["System.Title"] == "" {
+			return errorNotificationMsg{message: "Template missing required field: System.Title"}
+		}
+
+		// Determine parent ID from template
+		parentID := 0
+		if template.Relations != nil && template.Relations.ParentID > 0 {
+			parentID = template.Relations.ParentID
+		}
+
+		// Create the work item
+		workItemPtr, err := client.CreateWorkItem(template.Type, fields, parentID)
+		if err != nil {
+			logger.Printf("Error creating work item: %v", err)
+			return errorNotificationMsg{message: fmt.Sprintf("Failed to create work item: %v", err)}
+		}
+
+		var workItemID int
+		if workItemPtr != nil && workItemPtr.Id != nil {
+			workItemID = *workItemPtr.Id
+		}
+
+		logger.Printf("Successfully created work item #%d from template", workItemID)
+
+		// Count child work items for message
+		childCount := 0
+
+		// Create child work items if specified in template
+		if template.Relations != nil && len(template.Relations.Children) > 0 {
+			for _, child := range template.Relations.Children {
+				childFields := make(map[string]interface{})
+
+				// Copy child fields
+				for k, v := range child.Fields {
+					childFields[k] = v
+				}
+
+				// Set title and description from child
+				if child.Title != "" {
+					childFields["System.Title"] = child.Title
+				}
+				if child.Description != "" {
+					childFields["System.Description"] = child.Description
+				}
+				if child.AssignedTo != "" {
+					childFields["System.AssignedTo"] = child.AssignedTo
+				}
+
+				// Determine child type
+				childType := child.Type
+				if childType == "" {
+					childType = "Task" // Default to Task
+				}
+
+				// Create child work item with parent link
+				childWI, err := client.CreateWorkItem(childType, childFields, workItemID)
+				if err != nil {
+					logger.Printf("Warning: Failed to create child work item '%s': %v", child.Title, err)
+					continue
+				}
+
+				var childID int
+				if childWI != nil && childWI.Id != nil {
+					childID = *childWI.Id
+					childCount++
+					logger.Printf("Created child work item #%d: %s", childID, child.Title)
+				}
+			}
+		}
+
+		// Create success message
+		var message string
+		if childCount > 0 {
+			message = fmt.Sprintf("Created work item #%d with %d children", workItemID, childCount)
+		} else {
+			message = fmt.Sprintf("Created work item #%d", workItemID)
+		}
+
+		// Return success notification and refresh work items
+		return tea.Batch(
+			func() tea.Msg { return successMsg{message: message} },
+			fetchWorkItems(client),
+		)()
+	}
+}
+
+func editTemplate(templatePath string) tea.Cmd {
+	// Get the template directory
+	templatesDir, err := templates.GetTemplatesDir()
+	if err != nil {
+		logger.Printf("Error getting templates directory: %v", err)
+		return func() tea.Msg {
+			return errMsg{err: err}
+		}
+	}
+
+	// Build full path
+	fullPath := filepath.Join(templatesDir, templatePath)
+
+	// Ensure it has .yaml extension
+	if !strings.HasSuffix(fullPath, ".yaml") && !strings.HasSuffix(fullPath, ".yml") {
+		fullPath += ".yaml"
+	}
+
+	// Get editor from environment or use default
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "vi" // Default to vi
+	}
+
+	logger.Printf("Opening editor '%s' for file: %s", editor, fullPath)
+
+	// Use tea.ExecProcess to open the editor
+	c := exec.Command(editor, fullPath)
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		if err != nil {
+			logger.Printf("Error opening editor: %v", err)
+			return errMsg{err: fmt.Errorf("failed to open editor: %w", err)}
+		}
+		logger.Printf("Editor closed, reloading templates")
+		// Reload templates after editing
+		return fetchTemplates()()
+	})
+}
+
+func copyTemplate(sourceItem templateListItem, newName string) tea.Cmd {
+	return func() tea.Msg {
+		logger.Printf("Copying template '%s' to '%s'", sourceItem.Name, newName)
+
+		templatesDir, err := templates.GetTemplatesDir()
+		if err != nil {
+			logger.Printf("Error getting templates directory: %v", err)
+			return errMsg{err: err}
+		}
+
+		// Build source path
+		sourcePath := filepath.Join(templatesDir, sourceItem.Path)
+		if !strings.HasSuffix(sourcePath, ".yaml") && !strings.HasSuffix(sourcePath, ".yml") {
+			sourcePath += ".yaml"
+		}
+
+		// Build destination path (in same directory as source)
+		destName := newName
+		if !strings.HasSuffix(destName, ".yaml") && !strings.HasSuffix(destName, ".yml") {
+			destName += ".yaml"
+		}
+
+		var destPath string
+		if sourceItem.node.ParentPath != "" {
+			destPath = filepath.Join(templatesDir, sourceItem.node.ParentPath, destName)
+		} else {
+			destPath = filepath.Join(templatesDir, destName)
+		}
+
+		// Read source file
+		data, err := os.ReadFile(sourcePath)
+		if err != nil {
+			logger.Printf("Error reading source template: %v", err)
+			return errMsg{err: fmt.Errorf("failed to read template: %w", err)}
+		}
+
+		// Write to destination
+		err = os.WriteFile(destPath, data, 0644)
+		if err != nil {
+			logger.Printf("Error writing destination template: %v", err)
+			return errMsg{err: fmt.Errorf("failed to write template: %w", err)}
+		}
+
+		logger.Printf("Successfully copied template to: %s", destPath)
+
+		// Show success notification and reload templates
+		return tea.Batch(
+			func() tea.Msg { return successMsg{message: fmt.Sprintf("Copied template to '%s'", newName)} },
+			fetchTemplates(),
+		)()
+	}
+}
+
+func createFolder(parentPath, folderName string) tea.Cmd {
+	return func() tea.Msg {
+		logger.Printf("Creating folder '%s' in '%s'", folderName, parentPath)
+
+		templatesDir, err := templates.GetTemplatesDir()
+		if err != nil {
+			logger.Printf("Error getting templates directory: %v", err)
+			return errMsg{err: err}
+		}
+
+		// Build folder path
+		var folderPath string
+		if parentPath != "" {
+			folderPath = filepath.Join(templatesDir, parentPath, folderName)
+		} else {
+			folderPath = filepath.Join(templatesDir, folderName)
+		}
+
+		// Create the directory
+		err = os.MkdirAll(folderPath, 0755)
+		if err != nil {
+			logger.Printf("Error creating folder: %v", err)
+			return errMsg{err: fmt.Errorf("failed to create folder: %w", err)}
+		}
+
+		logger.Printf("Successfully created folder: %s", folderPath)
+
+		// Show success notification and reload templates
+		return tea.Batch(
+			func() tea.Msg { return successMsg{message: fmt.Sprintf("Created folder '%s'", folderName)} },
+			fetchTemplates(),
+		)()
+	}
+}
+
+func createTemplate(parentPath, templateName string) tea.Cmd {
+	return func() tea.Msg {
+		logger.Printf("Creating new template '%s' from basic template in '%s'", templateName, parentPath)
+
+		templatesDir, err := templates.GetTemplatesDir()
+		if err != nil {
+			logger.Printf("Error getting templates directory: %v", err)
+			return errMsg{err: err}
+		}
+
+		// Load the basic template as source
+		basicTemplatePath := filepath.Join(templatesDir, "basic.yaml")
+		data, err := os.ReadFile(basicTemplatePath)
+		if err != nil {
+			logger.Printf("Error reading basic template: %v", err)
+			return errMsg{err: fmt.Errorf("failed to read basic template: %w", err)}
+		}
+
+		// Build destination path
+		destName := templateName
+		if !strings.HasSuffix(destName, ".yaml") && !strings.HasSuffix(destName, ".yml") {
+			destName += ".yaml"
+		}
+
+		var destPath string
+		if parentPath != "" {
+			destPath = filepath.Join(templatesDir, parentPath, destName)
+		} else {
+			destPath = filepath.Join(templatesDir, destName)
+		}
+
+		// Write to destination
+		err = os.WriteFile(destPath, data, 0644)
+		if err != nil {
+			logger.Printf("Error writing new template: %v", err)
+			return errMsg{err: fmt.Errorf("failed to create template: %w", err)}
+		}
+
+		logger.Printf("Successfully created template: %s", destPath)
+
+		// Show success notification and reload templates
+		return tea.Batch(
+			func() tea.Msg { return successMsg{message: fmt.Sprintf("Created template '%s'", templateName)} },
+			fetchTemplates(),
+		)()
+	}
+}
+
+// saveWorkItemAsTemplate creates a template from a work item
+func saveWorkItemAsTemplate(client *api.Client, wi workitemtracking.WorkItem, templateName string) tea.Cmd {
+	return func() tea.Msg {
+		logger.Printf("Saving work item as template '%s'", templateName)
+
+		templatesDir, err := templates.GetTemplatesDir()
+		if err != nil {
+			logger.Printf("Error getting templates directory: %v", err)
+			return errorNotificationMsg{message: fmt.Sprintf("Failed to get templates directory: %v", err)}
+		}
+
+		// Extract work item type
+		workItemType := ""
+		if wi.Fields != nil {
+			if typeVal, ok := (*wi.Fields)["System.WorkItemType"].(string); ok {
+				workItemType = typeVal
+			}
+		}
+
+		if workItemType == "" {
+			return errorNotificationMsg{message: "Could not determine work item type"}
+		}
+
+		// Build template fields from work item
+		templateFields := make(map[string]interface{})
+
+		// Common fields to include in template
+		fieldsToInclude := []string{
+			"System.Title",
+			"System.Description",
+			"System.Tags",
+			"System.AreaPath",
+			"System.IterationPath",
+			"Microsoft.VSTS.Common.Priority",
+		}
+
+		if wi.Fields != nil {
+			for _, fieldName := range fieldsToInclude {
+				if val, ok := (*wi.Fields)[fieldName]; ok && val != nil {
+					// Skip empty values
+					if strVal, ok := val.(string); ok && strVal == "" {
+						continue
+					}
+					templateFields[fieldName] = val
+				}
+			}
+
+			// Include any custom fields
+			for fieldName, val := range *wi.Fields {
+				if strings.HasPrefix(fieldName, "Custom.") && val != nil {
+					templateFields[fieldName] = val
+				}
+			}
+		}
+
+		// Extract relationships (children only - we don't store parent ID as it's specific to source)
+		var relations *templates.Relations
+		var childWorkItems []templates.ChildWorkItem
+
+		if wi.Relations != nil && len(*wi.Relations) > 0 {
+			for _, relation := range *wi.Relations {
+				// Look for child relationships (System.LinkTypes.Hierarchy-Forward)
+				if relation.Rel != nil && *relation.Rel == "System.LinkTypes.Hierarchy-Forward" {
+					// Extract child work item ID from URL
+					if relation.Url != nil {
+						childID := extractWorkItemIDFromURL(*relation.Url)
+						if childID > 0 {
+							logger.Printf("Fetching child work item #%d", childID)
+							childWI, err := client.GetWorkItem(childID)
+							if err != nil {
+								logger.Printf("Warning: Could not fetch child work item #%d: %v", childID, err)
+								// Add placeholder if fetch fails
+								childWorkItems = append(childWorkItems, templates.ChildWorkItem{
+									Type:        "Task",
+									Title:       fmt.Sprintf("Child task (from work item #%d)", childID),
+									Description: fmt.Sprintf("TODO: Edit this child task. Original ID: %d", childID),
+								})
+								continue
+							}
+
+							// Extract child work item details
+							childType := "Task"
+							if childWI.Fields != nil {
+								if typeVal, ok := (*childWI.Fields)["System.WorkItemType"].(string); ok {
+									childType = typeVal
+								}
+							}
+
+							childTitle := fmt.Sprintf("Child task #%d", childID)
+							childDescription := ""
+							childAssignedTo := ""
+
+							if childWI.Fields != nil {
+								if title, ok := (*childWI.Fields)["System.Title"].(string); ok {
+									childTitle = title
+								}
+								if desc, ok := (*childWI.Fields)["System.Description"].(string); ok {
+									childDescription = desc
+								}
+								if assigned, ok := (*childWI.Fields)["System.AssignedTo"]; ok {
+									// Handle identity field
+									if identityMap, ok := assigned.(map[string]interface{}); ok {
+										if displayName, ok := identityMap["displayName"].(string); ok {
+											childAssignedTo = displayName
+										}
+									}
+								}
+							}
+
+							childWorkItems = append(childWorkItems, templates.ChildWorkItem{
+								Type:        childType,
+								Title:       childTitle,
+								Description: childDescription,
+								AssignedTo:  childAssignedTo,
+							})
+						}
+					}
+				}
+			}
+
+			if len(childWorkItems) > 0 {
+				relations = &templates.Relations{
+					Children: childWorkItems,
+				}
+			}
+		}
+
+		// Create template struct
+		template := templates.Template{
+			Name:        templateName,
+			Description: fmt.Sprintf("Generated from work item #%d", *wi.Id),
+			Type:        workItemType,
+			Fields:      templateFields,
+			Relations:   relations,
+		}
+
+		// Build template file path
+		destName := templateName
+		if !strings.HasSuffix(destName, ".yaml") && !strings.HasSuffix(destName, ".yml") {
+			destName += ".yaml"
+		}
+		destPath := filepath.Join(templatesDir, destName)
+
+		// Marshal template to YAML
+		data, err := yaml.Marshal(template)
+		if err != nil {
+			logger.Printf("Error marshaling template: %v", err)
+			return errorNotificationMsg{message: fmt.Sprintf("Failed to marshal template: %v", err)}
+		}
+
+		// Write template file
+		err = os.WriteFile(destPath, data, 0644)
+		if err != nil {
+			logger.Printf("Error writing template file: %v", err)
+			return errorNotificationMsg{message: fmt.Sprintf("Failed to write template: %v", err)}
+		}
+
+		logger.Printf("Successfully saved template: %s", destPath)
+
+		// Show success notification and reload templates
+		return tea.Batch(
+			func() tea.Msg { return successMsg{message: fmt.Sprintf("Saved template '%s'", templateName)} },
+			fetchTemplates(),
+		)()
+	}
+}
+
+// deleteWorkItem deletes a work item by ID
+func deleteWorkItem(client *api.Client, id int) tea.Cmd {
+	return func() tea.Msg {
+		logger.Printf("Deleting work item #%d", id)
+
+		err := client.DeleteWorkItem(id)
+		if err != nil {
+			logger.Printf("Error deleting work item: %v", err)
+			return errorNotificationMsg{message: fmt.Sprintf("Failed to delete work item: %v", err)}
+		}
+
+		logger.Printf("Successfully deleted work item #%d", id)
+
+		// Show success notification
+		// Note: We need to refresh AND show notification, so we'll return batch
+		return tea.Batch(
+			func() tea.Msg { return successMsg{message: fmt.Sprintf("Deleted work item #%d", id)} },
+			fetchWorkItems(client),
+		)()
+	}
+}
+
+// createWorkItemFromTemplate creates a new work item from a template
+func createWorkItemFromTemplate(client *api.Client, templateName string) tea.Cmd {
+	return func() tea.Msg {
+		logger.Printf("Creating work item from template '%s'", templateName)
+
+		// Load template
+		template, err := templates.Load(templateName)
+		if err != nil {
+			logger.Printf("Error loading template: %v", err)
+			return errMsg{err: fmt.Errorf("failed to load template: %w", err)}
+		}
+
+		// Build fields map from template
+		fields := make(map[string]interface{})
+		for k, v := range template.Fields {
+			fields[k] = v
+		}
+
+		// Validate required fields
+		if fields["System.Title"] == nil || fields["System.Title"] == "" {
+			return errMsg{err: fmt.Errorf("template missing required field: System.Title")}
+		}
+
+		// Get parent ID if specified
+		parentID := 0
+		if template.Relations != nil && template.Relations.ParentID > 0 {
+			parentID = template.Relations.ParentID
+		}
+
+		// Create work item
+		workItem, err := client.CreateWorkItem(template.Type, fields, parentID)
+		if err != nil {
+			logger.Printf("Error creating work item: %v", err)
+			return errMsg{err: fmt.Errorf("failed to create work item: %w", err)}
+		}
+
+		logger.Printf("Successfully created work item #%d", *workItem.Id)
+
+		// Create child work items if specified
+		if template.Relations != nil && len(template.Relations.Children) > 0 && workItem.Id != nil {
+			for _, child := range template.Relations.Children {
+				childFields := make(map[string]interface{})
+				childType := child.Type
+				if childType == "" {
+					childType = "Task"
+				}
+
+				childFields["System.Title"] = child.Title
+				if child.Description != "" {
+					childFields["System.Description"] = child.Description
+				}
+				if child.AssignedTo != "" && child.AssignedTo != "@me" {
+					childFields["System.AssignedTo"] = child.AssignedTo
+				}
+
+				// Add any additional fields
+				for k, v := range child.Fields {
+					childFields[k] = v
+				}
+
+				_, err := client.CreateWorkItem(childType, childFields, *workItem.Id)
+				if err != nil {
+					logger.Printf("Error creating child work item: %v", err)
+				}
+			}
+		}
+
+		// Refresh work items list
+		return fetchWorkItems(client)()
+	}
+}
+
+// updateWorkItemTitle updates the title of a work item
+func updateWorkItemTitle(client *api.Client, id int, newTitle string) tea.Cmd {
+	return func() tea.Msg {
+		logger.Printf("Updating work item #%d title to '%s'", id, newTitle)
+
+		fields := map[string]interface{}{
+			"System.Title": newTitle,
+		}
+
+		_, err := client.UpdateWorkItem(id, fields)
+		if err != nil {
+			logger.Printf("Error updating work item: %v", err)
+			return errorNotificationMsg{message: fmt.Sprintf("Failed to update work item: %v", err)}
+		}
+
+		logger.Printf("Successfully updated work item #%d", id)
+
+		// Show success notification and refresh
+		return tea.Batch(
+			func() tea.Msg { return successMsg{message: fmt.Sprintf("Updated work item #%d", id)} },
+			fetchWorkItems(client),
+		)()
 	}
 }

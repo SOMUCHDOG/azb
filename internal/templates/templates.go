@@ -33,6 +33,16 @@ type ChildWorkItem struct {
 	Fields      map[string]interface{} `yaml:"fields,omitempty"`
 }
 
+// TemplateNode represents a node in the template tree (file or directory)
+type TemplateNode struct {
+	Name       string          // Display name (filename without extension or directory name)
+	Path       string          // Relative path from templates dir
+	IsDir      bool            // True if this is a directory
+	Template   *Template       // Populated if this is a template file
+	Children   []*TemplateNode // Populated if this is a directory
+	ParentPath string          // Path of parent directory
+}
+
 // GetTemplatesDir returns the path to the templates directory
 func GetTemplatesDir() (string, error) {
 	home, err := os.UserHomeDir()
@@ -49,6 +59,7 @@ func GetTemplatesDir() (string, error) {
 }
 
 // GetTemplatePath returns the full path for a template file
+// Supports subdirectories (e.g., "bugs/critical-bug" -> "bugs/critical-bug.yaml")
 func GetTemplatePath(name string) (string, error) {
 	templatesDir, err := GetTemplatesDir()
 	if err != nil {
@@ -173,4 +184,81 @@ func Exists(name string) (bool, error) {
 	}
 
 	return true, nil
+}
+
+// ListTree recursively lists all templates in a tree structure
+func ListTree() ([]*TemplateNode, error) {
+	templatesDir, err := GetTemplatesDir()
+	if err != nil {
+		return nil, err
+	}
+
+	return listTreeRecursive(templatesDir, "", "")
+}
+
+// listTreeRecursive is a helper that recursively builds the template tree
+func listTreeRecursive(baseDir, relativePath, parentPath string) ([]*TemplateNode, error) {
+	var currentDir string
+	if relativePath == "" {
+		currentDir = baseDir
+	} else {
+		currentDir = filepath.Join(baseDir, relativePath)
+	}
+
+	entries, err := os.ReadDir(currentDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read directory %s: %w", currentDir, err)
+	}
+
+	var nodes []*TemplateNode
+
+	for _, entry := range entries {
+		var nodePath string
+		if relativePath == "" {
+			nodePath = entry.Name()
+		} else {
+			nodePath = filepath.Join(relativePath, entry.Name())
+		}
+
+		if entry.IsDir() {
+			// Recursively process subdirectory
+			children, err := listTreeRecursive(baseDir, nodePath, relativePath)
+			if err != nil {
+				// Skip directories that can't be read
+				continue
+			}
+
+			nodes = append(nodes, &TemplateNode{
+				Name:       entry.Name(),
+				Path:       nodePath,
+				IsDir:      true,
+				Children:   children,
+				ParentPath: parentPath,
+			})
+		} else {
+			// Process template file
+			if !strings.HasSuffix(entry.Name(), ".yaml") && !strings.HasSuffix(entry.Name(), ".yml") {
+				continue
+			}
+
+			// Load the template
+			templateName := strings.TrimSuffix(strings.TrimSuffix(nodePath, ".yaml"), ".yml")
+			template, err := Load(templateName)
+			if err != nil {
+				// Skip invalid templates
+				continue
+			}
+
+			displayName := strings.TrimSuffix(strings.TrimSuffix(entry.Name(), ".yaml"), ".yml")
+			nodes = append(nodes, &TemplateNode{
+				Name:       displayName,
+				Path:       nodePath,
+				IsDir:      false,
+				Template:   template,
+				ParentPath: parentPath,
+			})
+		}
+	}
+
+	return nodes, nil
 }
