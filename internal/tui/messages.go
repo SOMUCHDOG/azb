@@ -1,0 +1,87 @@
+package tui
+
+import (
+	"github.com/casey/azure-boards-cli/internal/templates"
+	"github.com/microsoft/azure-devops-go-api/azuredevops/workitemtracking"
+)
+
+// NotificationMsg is sent to display a notification
+type NotificationMsg struct {
+	Message string
+	IsError bool
+}
+
+// ClearNotificationMsg clears the current notification
+type ClearNotificationMsg struct{}
+
+// WorkItemsLoadedMsg is sent when work items are loaded
+type WorkItemsLoadedMsg struct {
+	WorkItems []workitemtracking.WorkItem
+	Error     error
+}
+
+// QueriesLoadedMsg is sent when queries are loaded
+type QueriesLoadedMsg struct {
+	Queries []workitemtracking.QueryHierarchyItem
+	Error   error
+}
+
+// TemplatesLoadedMsg is sent when templates are loaded
+type TemplatesLoadedMsg struct {
+	Templates []*templates.TemplateNode
+	Error     error
+}
+
+// QueryExecutedMsg is sent when a query is executed
+type QueryExecutedMsg struct {
+	WorkItems []workitemtracking.WorkItem
+	Error     error
+}
+
+// WorkItemCreatedMsg is sent when a work item is created
+type WorkItemCreatedMsg struct {
+	WorkItem *workitemtracking.WorkItem
+	Error    error
+}
+
+// WorkItemUpdatedMsg is sent when a work item is updated
+type WorkItemUpdatedMsg struct {
+	WorkItem *workitemtracking.WorkItem
+	Error    error
+}
+
+// WorkItemDeletedMsg is sent when a work item is deleted
+type WorkItemDeletedMsg struct {
+	ID    int
+	Error error
+}
+
+// WorkItemDetailsLoadedMsg is sent when work item details (with relationships) are loaded
+type WorkItemDetailsLoadedMsg struct {
+	WorkItem *workitemtracking.WorkItem
+	Error    error
+}
+
+// TemplateCopiedMsg is sent when a template is copied
+type TemplateCopiedMsg struct {
+	OriginalPath string
+	NewPath      string
+	Error        error
+}
+
+// TemplateFolderCreatedMsg is sent when a template folder is created
+type TemplateFolderCreatedMsg struct {
+	FolderPath string
+	Error      error
+}
+
+// TemplateDeletedMsg is sent when a template is deleted
+type TemplateDeletedMsg struct {
+	TemplatePath string
+	Error        error
+}
+
+// SwitchToTabMsg is sent to switch to a specific tab
+type SwitchToTabMsg struct {
+	TabIndex int
+}
