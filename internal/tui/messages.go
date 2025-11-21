@@ -130,3 +130,8 @@ type ConfirmDeleteTemplateMsg struct {
 
 // RefreshTemplatesMsg is sent to trigger a templates list refresh
 type RefreshTemplatesMsg struct{}
+
+// CreateWorkItemFromTemplateMsg is sent to create a work item from a template
+type CreateWorkItemFromTemplateMsg struct {
+	Template *templates.Template
+}

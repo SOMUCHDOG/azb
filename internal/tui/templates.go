@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/casey/azure-boards-cli/internal/api"
 	"github.com/casey/azure-boards-cli/internal/templates"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -18,6 +19,7 @@ import (
 // TemplatesTab displays and manages templates
 type TemplatesTab struct {
 	TabBase
+	client           *api.Client
 	templates        []*templates.TemplateNode
 	list             list.Model
 	preview          viewport.Model
@@ -28,9 +30,10 @@ type TemplatesTab struct {
 }
 
 // NewTemplatesTab creates a new templates tab
-func NewTemplatesTab(width, height int) *TemplatesTab {
+func NewTemplatesTab(client *api.Client, width, height int) *TemplatesTab {
 	tab := &TemplatesTab{
 		TabBase:         NewTabBase(width, height),
+		client:          client,
 		expandedFolders: make(map[string]bool),
 		loading:         true,
 	}
@@ -133,7 +136,7 @@ func (t *TemplatesTab) SetSize(width, height int) {
 	t.preview.Height = t.ContentHeight() - 2
 }
 
-// handleEnter toggles folder expansion or shows template details
+// handleEnter toggles folder expansion or creates work item from template
 func (t *TemplatesTab) handleEnter() (Tab, tea.Cmd) {
 	selectedItem := t.list.SelectedItem()
 	if item, ok := selectedItem.(templateListItem); ok {
@@ -143,8 +146,10 @@ func (t *TemplatesTab) handleEnter() (Tab, tea.Cmd) {
 			t.rebuildList()
 			return t, nil
 		}
-		// Template selected - preview is already updated
-		t.updatePreview()
+		// Template selected - create work item from template
+		if item.Template != nil {
+			return t, createWorkItemFromTemplate(item.Template)
+		}
 		return t, nil
 	}
 	return t, nil
@@ -343,6 +348,7 @@ func (i templateListItem) FilterValue() string { return i.Name }
 // GetHelpEntries returns the list of available actions for the Templates tab
 func (t *TemplatesTab) GetHelpEntries() []HelpEntry {
 	return []HelpEntry{
+		{Action: "execute", Description: "Create work item from template"},
 		{Action: "copy", Description: "Copy template"},
 		{Action: "new_template", Description: "Create new template"},
 		{Action: "new_folder", Description: "Create new folder"},
@@ -679,6 +685,16 @@ func createNewFolder(name string) tea.Cmd {
 		return TemplateFolderCreatedMsg{
 			FolderPath: name,
 			Error:      nil,
+		}
+	}
+}
+
+// createWorkItemFromTemplate creates a work item from the selected template
+func createWorkItemFromTemplate(template *templates.Template) tea.Cmd {
+	return func() tea.Msg {
+		logger.Printf("Creating work item from template: %s", template.Name)
+		return CreateWorkItemFromTemplateMsg{
+			Template: template,
 		}
 	}
 }

@@ -78,7 +78,7 @@ func NewDashboard(client *api.Client) *Dashboard {
 	dashboard.tabs = []Tab{
 		NewQueriesTab(client, 0, 0),
 		NewWorkItemsTab(client, 0, 0),
-		NewTemplatesTab(0, 0),
+		NewTemplatesTab(client, 0, 0),
 		NewPipelinesTab(0, 0),
 		NewAgentsTab(0, 0),
 	}
@@ -350,7 +350,7 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		logger.Printf("Showing delete confirmation for work item #%d with %d children", msg.WorkItemID, childCount)
 		return d, nil
 
-	case WorkItemsLoadedMsg, QueryExecutedMsg, WorkItemDeletedMsg:
+	case WorkItemsLoadedMsg, QueryExecutedMsg, WorkItemDeletedMsg, WorkItemCreatedMsg:
 		// Route work item messages to Work Items tab (index 1)
 		logger.Printf("Routing work item message to Work Items tab")
 		if len(d.tabs) > 1 {
@@ -358,6 +358,26 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			d.tabs[1] = tab
 			cmds = append(cmds, cmd)
 		}
+
+		// Show notification for created work item
+		if createdMsg, ok := msg.(WorkItemCreatedMsg); ok {
+			if createdMsg.Error == nil && createdMsg.WorkItem != nil {
+				workItemID := *createdMsg.WorkItem.Id
+				message := fmt.Sprintf("Created work item #%d", workItemID)
+
+				// Switch to Work Items tab (index 1)
+				d.currentTab = 1
+				logger.Printf("Switched to Work Items tab after creation")
+
+				cmds = append(cmds, func() tea.Msg {
+					return NotificationMsg{
+						Message: message,
+						IsError: false,
+					}
+				})
+			}
+		}
+
 		return d, tea.Batch(cmds...)
 
 	case QueriesLoadedMsg:
@@ -565,6 +585,11 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Process the edited work item after editor closes
 		logger.Printf("Processing edited work item #%d", msg.WorkItemID)
 		return d, processEditedWorkItem(msg.FilePath, msg.WorkItemID, msg.Client)
+
+	case CreateWorkItemFromTemplateMsg:
+		// Create work item from template
+		logger.Printf("Creating work item from template: %s", msg.Template.Name)
+		return d, executeCreateWorkItemFromTemplate(d.client, msg.Template)
 
 	default:
 		// Route all other messages to the active tab

@@ -821,3 +821,81 @@ func buildUpdateDocument(template *templates.Template) map[string]interface{} {
 
 	return fields
 }
+
+// executeCreateWorkItemFromTemplate creates a work item from a template
+func executeCreateWorkItemFromTemplate(client *api.Client, template *templates.Template) tea.Cmd {
+	return func() tea.Msg {
+		logger.Printf("Executing create work item from template: %s", template.Name)
+
+		// Build fields map from template
+		fields := make(map[string]interface{})
+		for fieldName, value := range template.Fields {
+			fields[fieldName] = value
+		}
+
+		// Create parent work item
+		parentID := 0
+		if template.Relations != nil && template.Relations.ParentID > 0 {
+			parentID = template.Relations.ParentID
+		}
+
+		workItem, err := client.CreateWorkItem(template.Type, fields, parentID)
+		if err != nil {
+			logger.Printf("Failed to create work item from template: %v", err)
+			return NotificationMsg{
+				Message: fmt.Sprintf("Failed to create work item: %v", err),
+				IsError: true,
+			}
+		}
+
+		workItemID := *workItem.Id
+		logger.Printf("Created work item #%d from template", workItemID)
+
+		// Create child work items if specified
+		childCount := 0
+		if template.Relations != nil && len(template.Relations.Children) > 0 {
+			for _, child := range template.Relations.Children {
+				childFields := make(map[string]interface{})
+				childFields["System.Title"] = child.Title
+				if child.Description != "" {
+					childFields["System.Description"] = child.Description
+				}
+				if child.AssignedTo != "" {
+					childFields["System.AssignedTo"] = child.AssignedTo
+				}
+
+				// Add any custom fields from child
+				for fieldName, value := range child.Fields {
+					childFields[fieldName] = value
+				}
+
+				// Determine child type
+				childType := child.Type
+				if childType == "" {
+					childType = "Task"
+				}
+
+				// Create child work item with parent relationship
+				_, err := client.CreateWorkItem(childType, childFields, workItemID)
+				if err != nil {
+					logger.Printf("Failed to create child work item: %v", err)
+					// Continue creating other children even if one fails
+					continue
+				}
+				childCount++
+			}
+			logger.Printf("Created %d child work items", childCount)
+		}
+
+		// Build success message
+		message := fmt.Sprintf("Created work item #%d", workItemID)
+		if childCount > 0 {
+			message += fmt.Sprintf(" with %d child task(s)", childCount)
+		}
+
+		return WorkItemCreatedMsg{
+			WorkItem: workItem,
+			Error:    nil,
+		}
+	}
+}
