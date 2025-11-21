@@ -177,8 +177,28 @@ func (t *WorkItemsTab) Update(msg tea.Msg) (Tab, tea.Cmd) {
 		cmds = append(cmds, cmd)
 	}
 
+	// Store previous selection to detect changes
+	var previousID int
+	if t.selectedItem != nil && t.selectedItem.Id != nil {
+		previousID = *t.selectedItem.Id
+	}
+
 	t.list, cmd = t.list.Update(msg)
 	cmds = append(cmds, cmd)
+
+	// If details are showing, check if selection changed and update viewport
+	if t.showDetails && len(t.list.Items()) > 0 {
+		selectedItem := t.list.SelectedItem()
+		if item, ok := selectedItem.(workItemItem); ok {
+			currentID := item.ID
+			// Only update if selection actually changed
+			if currentID != previousID {
+				t.selectedItem = &item.workItem
+				t.viewport.SetContent(t.formatWorkItemDetails(item.workItem))
+				t.viewport.GotoTop() // Reset scroll position for new item
+			}
+		}
+	}
 
 	return t, tea.Batch(cmds...)
 }
