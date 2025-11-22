@@ -28,9 +28,9 @@ type WorkItemsTab struct {
 	relationshipData map[int]*relationshipInfo
 	list             list.Model
 	viewport         viewport.Model
-	selectedItem *workitemtracking.WorkItem
-	showDetails  bool
-	loading      bool
+	selectedItem     *workitemtracking.WorkItem
+	showDetails      bool
+	loading          bool
 	//nolint:unused // Reserved for future feature: async relationship loading
 	loadingRelations bool
 	initialized      bool
