@@ -7,13 +7,14 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/casey/azure-boards-cli/internal/api"
-	"github.com/casey/azure-boards-cli/internal/templates"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/casey/azure-boards-cli/internal/api"
+	"github.com/casey/azure-boards-cli/internal/templates"
 )
 
 // TemplatesTab displays and manages templates

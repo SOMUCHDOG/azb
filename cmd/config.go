@@ -3,9 +3,10 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/casey/azure-boards-cli/internal/config"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
+	"github.com/casey/azure-boards-cli/internal/config"
 )
 
 var (

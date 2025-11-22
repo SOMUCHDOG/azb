@@ -5,12 +5,13 @@ import (
 	"io"
 	"strings"
 
-	"github.com/casey/azure-boards-cli/internal/api"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/workitemtracking"
+
+	"github.com/casey/azure-boards-cli/internal/api"
 )
 
 // QueriesTab displays saved queries in a tree view

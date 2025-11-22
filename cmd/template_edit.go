@@ -5,8 +5,9 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/casey/azure-boards-cli/internal/templates"
 	"github.com/spf13/cobra"
+
+	"github.com/casey/azure-boards-cli/internal/templates"
 )
 
 var (

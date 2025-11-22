@@ -8,8 +8,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/casey/azure-boards-cli/internal/api"
-	"github.com/casey/azure-boards-cli/internal/templates"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -17,6 +15,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/workitemtracking"
 	"gopkg.in/yaml.v3"
+
+	"github.com/casey/azure-boards-cli/internal/api"
+	"github.com/casey/azure-boards-cli/internal/templates"
 )
 
 // WorkItemsTab displays and manages work items

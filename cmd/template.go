@@ -6,9 +6,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/casey/azure-boards-cli/internal/templates"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
+
+	"github.com/casey/azure-boards-cli/internal/templates"
 )
 
 var (
