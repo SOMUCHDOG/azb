@@ -27,18 +27,29 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 'lts/*'
+          node-version: '20'
+
+      - name: Install semantic-release
+        run: |
+          npm install -g semantic-release@23 \
+            @semantic-release/git@10 \
+            @semantic-release/changelog@6 \
+            conventional-changelog-conventionalcommits@7
 
       - name: Run semantic-release
         id: semantic
-        uses: cycjimmy/semantic-release-action@v4
         env:
           GITHUB_TOKEN: ${{ secrets.SEMANTIC_RELEASE_TOKEN }}
-        with:
-          extra_plugins: |
-            @semantic-release/git@10
-            @semantic-release/changelog@6
-            conventional-changelog-conventionalcommits@7
+        run: |
+          npx semantic-release > /tmp/sr-output.log 2>&1 || true
+          cat /tmp/sr-output.log
+          if grep -q "Published release" /tmp/sr-output.log; then
+            echo "new_release_published=true" >> $GITHUB_OUTPUT
+            VERSION=$(grep "Published release" /tmp/sr-output.log | sed -n 's/.*Published release \([0-9.]*\).*/\1/p')
+            echo "new_release_version=$VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "new_release_published=false" >> $GITHUB_OUTPUT
+          fi
 
   goreleaser:
     name: GoReleaser
