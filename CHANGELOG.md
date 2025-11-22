@@ -1,3 +1,10 @@
+## [1.0.2](https://github.com/SOMUCHDOG/ado-admin/compare/v1.0.1...v1.0.2) (2025-11-22)
+
+
+### Bug Fixes
+
+* checkout specific tag in GoReleaser job ([f7f8d8f](https://github.com/SOMUCHDOG/ado-admin/commit/f7f8d8fdbda46eeab0cd493097d54c19045ea701))
+
 ## [1.0.1](https://github.com/SOMUCHDOG/ado-admin/compare/v1.0.0...v1.0.1) (2025-11-22)
 
 
