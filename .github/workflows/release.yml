@@ -60,6 +60,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: v${{ needs.semantic-release.outputs.new_release_version }}
 
       - name: Set up Go
         uses: actions/setup-go@v5
