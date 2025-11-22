@@ -3,8 +3,9 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/casey/azure-boards-cli/internal/templates"
 	"github.com/spf13/cobra"
+
+	"github.com/casey/azure-boards-cli/internal/templates"
 )
 
 var (
@@ -44,6 +45,7 @@ func runTemplateInit(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get the template path to show the user
+	//nolint:errcheck // If save succeeded, path will exist; error is non-critical for display
 	path, _ := templates.GetTemplatePath(name)
 
 	fmt.Printf("✓ Template '%s' created\n", name)

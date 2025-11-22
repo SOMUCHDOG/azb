@@ -5,8 +5,9 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/casey/azure-boards-cli/internal/templates"
 	"github.com/spf13/cobra"
+
+	"github.com/casey/azure-boards-cli/internal/templates"
 )
 
 var (
@@ -71,7 +72,7 @@ func runTemplateEdit(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("\n✓ Template '%s' updated\n", name)
-	fmt.Println("\nUse 'azb template show %s' to view the changes", name)
+	fmt.Printf("\nUse 'azb template show %s' to view the changes\n", name)
 
 	return nil
 }

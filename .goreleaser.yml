@@ -1,0 +1,121 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+    - go mod verify
+
+builds:
+  - id: azb
+    main: ./main.go
+    binary: azb
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+      - "386"
+    goarm:
+      - "7"
+    ignore:
+      - goos: darwin
+        goarch: "386"
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+      - -X main.builtBy=goreleaser
+
+archives:
+  - id: azb
+    format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README.md
+      - LICENSE*
+      - SPEC.md
+
+checksum:
+  name_template: 'checksums.txt'
+  algorithm: sha256
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - Merge pull request
+      - Merge branch
+  groups:
+    - title: Features
+      regexp: '^feat[(\\w)]*:'
+      order: 0
+    - title: Bug Fixes
+      regexp: '^fix[(\\w)]*:'
+      order: 1
+    - title: Others
+      order: 999
+
+release:
+  github:
+    owner: casey
+    name: azure-boards-cli
+  draft: false
+  prerelease: auto
+  mode: replace
+  header: |
+    ## Azure Boards CLI (azb) {{ .Tag }}
+
+    Download the appropriate binary for your platform below.
+
+    ### Installation
+
+    #### macOS
+    ```bash
+    # Intel
+    curl -L https://github.com/casey/azure-boards-cli/releases/download/{{ .Tag }}/azb_{{ .Version }}_Darwin_x86_64.tar.gz | tar xz
+
+    # Apple Silicon
+    curl -L https://github.com/casey/azure-boards-cli/releases/download/{{ .Tag }}/azb_{{ .Version }}_Darwin_arm64.tar.gz | tar xz
+
+    # Move to PATH
+    sudo mv azb /usr/local/bin/
+    ```
+
+    #### Linux
+    ```bash
+    # AMD64
+    curl -L https://github.com/casey/azure-boards-cli/releases/download/{{ .Tag }}/azb_{{ .Version }}_Linux_x86_64.tar.gz | tar xz
+    sudo mv azb /usr/local/bin/
+    ```
+
+    #### Windows
+    Download the `.zip` file for your architecture, extract it, and add to your PATH.
+  footer: |
+    **Full Changelog**: https://github.com/casey/azure-boards-cli/compare/{{ .PreviousTag }}...{{ .Tag }}
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+announce:
+  skip: true

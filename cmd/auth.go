@@ -7,9 +7,10 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/casey/azure-boards-cli/internal/auth"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
+
+	"github.com/casey/azure-boards-cli/internal/auth"
 )
 
 var (
@@ -120,7 +121,10 @@ func runLogout(cmd *cobra.Command, args []string) error {
 func runStatus(cmd *cobra.Command, args []string) error {
 	if auth.IsAuthenticated() {
 		fmt.Println("✓ Authenticated")
-		tokenPath, _ := auth.GetTokenPath()
+		tokenPath, err := auth.GetTokenPath()
+		if err != nil {
+			return fmt.Errorf("failed to get token path: %w", err)
+		}
 		fmt.Printf("Token stored at: %s\n", tokenPath)
 	} else {
 		fmt.Println("✗ Not authenticated")

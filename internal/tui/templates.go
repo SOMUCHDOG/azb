@@ -7,13 +7,14 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/casey/azure-boards-cli/internal/api"
-	"github.com/casey/azure-boards-cli/internal/templates"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/casey/azure-boards-cli/internal/api"
+	"github.com/casey/azure-boards-cli/internal/templates"
 )
 
 // TemplatesTab displays and manages templates
@@ -286,7 +287,7 @@ func (t *TemplatesTab) formatTemplatePreview(template *templates.Template) strin
 func (t *TemplatesTab) formatFolderPreview(item templateListItem) string {
 	var b strings.Builder
 
-	b.WriteString(TitleStyle.Render("📁 " + item.Name) + "\n\n")
+	b.WriteString(TitleStyle.Render("📁 "+item.Name) + "\n\n")
 
 	if item.node != nil && item.node.Children != nil {
 		count := len(item.node.Children)
@@ -575,7 +576,7 @@ func copyTemplate(oldPath, newName string) tea.Cmd {
 
 		// Build destination path
 		if !strings.HasSuffix(newName, ".yaml") && !strings.HasSuffix(newName, ".yml") {
-			newName = newName + ".yaml"
+			newName += ".yaml"
 		}
 		destPath := filepath.Join(templatesDir, newName)
 
@@ -599,7 +600,7 @@ func copyTemplate(oldPath, newName string) tea.Cmd {
 		}
 
 		// Write to destination
-		if err := os.WriteFile(destPath, data, 0644); err != nil {
+		if err := os.WriteFile(destPath, data, 0600); err != nil {
 			logger.Printf("Failed to write template: %v", err)
 			return NotificationMsg{
 				Message: fmt.Sprintf("Failed to write template: %v", err),

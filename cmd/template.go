@@ -6,9 +6,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/casey/azure-boards-cli/internal/templates"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
+
+	"github.com/casey/azure-boards-cli/internal/templates"
 )
 
 var (
@@ -72,6 +73,7 @@ func init() {
 	templateSaveCmd.Flags().StringVar(&createTagsFlag, "tags", "", "Default tags")
 	templateSaveCmd.Flags().StringArrayVar(&createFieldsFlag, "field", []string{}, "Custom field in format 'FieldName=value'")
 
+	//nolint:errcheck // Flag requirement error is non-critical at init time
 	templateSaveCmd.MarkFlagRequired("type")
 }
 
@@ -155,6 +157,7 @@ func runTemplateDelete(cmd *cobra.Command, args []string) error {
 	// Confirm deletion
 	fmt.Printf("Are you sure you want to delete template '%s'? (y/N): ", name)
 	var response string
+	//nolint:errcheck // User input error is acceptable - will default to 'no'
 	fmt.Scanln(&response)
 
 	if response != "y" && response != "Y" {

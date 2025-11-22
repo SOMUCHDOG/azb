@@ -11,12 +11,12 @@ import (
 
 // Client wraps the Azure DevOps API client
 type Client struct {
-	connection         *azuredevops.Connection
-	workItemClient     workitemtracking.Client
-	coreClient         core.Client
-	organizationURL    string
-	project            string
-	ctx                context.Context
+	connection      *azuredevops.Connection
+	workItemClient  workitemtracking.Client
+	coreClient      core.Client
+	organizationURL string
+	project         string
+	ctx             context.Context
 }
 
 // NewClient creates a new Azure DevOps API client

@@ -10,12 +10,12 @@ import (
 
 // Config represents the application configuration
 type Config struct {
-	Organization       string `mapstructure:"organization"`
-	Project            string `mapstructure:"project"`
-	DefaultAreaPath    string `mapstructure:"default_area_path"`
-	DefaultIteration   string `mapstructure:"default_iteration"`
-	CacheTTL           int    `mapstructure:"cache_ttl"`
-	DefaultView        string `mapstructure:"default_view"`
+	Organization        string `mapstructure:"organization"`
+	Project             string `mapstructure:"project"`
+	DefaultAreaPath     string `mapstructure:"default_area_path"`
+	DefaultIteration    string `mapstructure:"default_iteration"`
+	CacheTTL            int    `mapstructure:"cache_ttl"`
+	DefaultView         string `mapstructure:"default_view"`
 	PersonalAccessToken string `mapstructure:"personal_access_token"`
 }
 

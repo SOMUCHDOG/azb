@@ -8,8 +8,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/casey/azure-boards-cli/internal/api"
-	"github.com/casey/azure-boards-cli/internal/templates"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -17,6 +15,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/workitemtracking"
 	"gopkg.in/yaml.v3"
+
+	"github.com/casey/azure-boards-cli/internal/api"
+	"github.com/casey/azure-boards-cli/internal/templates"
 )
 
 // WorkItemsTab displays and manages work items
@@ -31,6 +32,7 @@ type WorkItemsTab struct {
 	selectedItem     *workitemtracking.WorkItem
 	showDetails      bool
 	loading          bool
+	//nolint:unused // Reserved for future feature: async relationship loading
 	loadingRelations bool
 	initialized      bool
 	err              error
@@ -38,11 +40,16 @@ type WorkItemsTab struct {
 
 // relationshipInfo stores formatted relationship data for a work item
 type relationshipInfo struct {
-	parent      string
-	children    []string
-	prs         []string
+	//nolint:unused // Reserved for future feature: display parent work item
+	parent string
+	//nolint:unused // Reserved for future feature: display child work items
+	children []string
+	//nolint:unused // Reserved for future feature: display related pull requests
+	prs []string
+	//nolint:unused // Reserved for future feature: display related deployments
 	deployments []string
-	loaded      bool
+	//nolint:unused // Reserved for future feature: track relationship loading state
+	loaded bool
 }
 
 // NewWorkItemsTab creates a new work items tab
@@ -532,7 +539,7 @@ func downloadWorkItem(client *api.Client, wi workitemtracking.WorkItem) tea.Cmd 
 		filename := fmt.Sprintf("workitem-%d-%s.yaml", id, sanitized)
 		filePath := filepath.Join(templatesDir, filename)
 
-		if err := os.WriteFile(filePath, yamlData, 0644); err != nil {
+		if err := os.WriteFile(filePath, yamlData, 0600); err != nil {
 			logger.Printf("Failed to save template: %v", err)
 			return NotificationMsg{
 				Message: fmt.Sprintf("Failed to save template: %v", err),
@@ -696,10 +703,8 @@ func deleteWorkItemWithChildren(client *api.Client, parentID int, childIDs []int
 		}
 
 		logger.Printf("Deleted parent work item #%d", parentID)
-
-		message := fmt.Sprintf("Successfully deleted work item #%d", parentID)
 		if len(childIDs) > 0 {
-			message += fmt.Sprintf(" and %d child task(s)", len(childIDs))
+			logger.Printf("Also deleted %d child task(s)", len(childIDs))
 		}
 
 		return WorkItemDeletedMsg{
@@ -767,7 +772,7 @@ func prepareEditWorkItem(client *api.Client, wi workitemtracking.WorkItem) tea.C
 		}
 
 		tempFile := filepath.Join(tempDir, fmt.Sprintf("edit-workitem-%d.yaml", id))
-		if err := os.WriteFile(tempFile, yamlData, 0644); err != nil {
+		if err := os.WriteFile(tempFile, yamlData, 0600); err != nil {
 			logger.Printf("Failed to write temp file: %v", err)
 			return NotificationMsg{
 				Message: fmt.Sprintf("Failed to write temp file: %v", err),
@@ -910,12 +915,6 @@ func executeCreateWorkItemFromTemplate(client *api.Client, template *templates.T
 				childCount++
 			}
 			logger.Printf("Created %d child work items", childCount)
-		}
-
-		// Build success message
-		message := fmt.Sprintf("Created work item #%d", workItemID)
-		if childCount > 0 {
-			message += fmt.Sprintf(" with %d child task(s)", childCount)
 		}
 
 		return WorkItemCreatedMsg{

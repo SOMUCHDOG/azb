@@ -5,11 +5,12 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+
 	"github.com/casey/azure-boards-cli/internal/api"
 	"github.com/casey/azure-boards-cli/internal/auth"
 	"github.com/casey/azure-boards-cli/internal/config"
-	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 var (
@@ -286,6 +287,7 @@ func runInteractiveUpdate(client *api.Client, id int) error {
 	// Title
 	currentTitle := getCurrentValue("System.Title")
 	fmt.Printf("Title [%s]: ", currentTitle)
+	//nolint:errcheck // User input is optional; errors default to empty string
 	newTitle, _ := promptOptional("")
 	if newTitle != "" {
 		fields["System.Title"] = newTitle
@@ -298,6 +300,7 @@ func runInteractiveUpdate(client *api.Client, id int) error {
 		descPreview = descPreview[:47] + "..."
 	}
 	fmt.Printf("Description [%s]: ", descPreview)
+	//nolint:errcheck // User input is optional; errors default to empty string
 	newDesc, _ := promptOptional("")
 	if newDesc != "" {
 		fields["System.Description"] = newDesc
@@ -306,6 +309,7 @@ func runInteractiveUpdate(client *api.Client, id int) error {
 	// State
 	currentState := getCurrentValue("System.State")
 	fmt.Printf("State [%s]: ", currentState)
+	//nolint:errcheck // User input is optional; errors default to empty string
 	newState, _ := promptOptional("")
 	if newState != "" {
 		fields["System.State"] = newState
@@ -314,6 +318,7 @@ func runInteractiveUpdate(client *api.Client, id int) error {
 	// Assigned To
 	currentAssignedTo := getCurrentValue("System.AssignedTo")
 	fmt.Printf("Assigned To [%s]: ", currentAssignedTo)
+	//nolint:errcheck // User input is optional; errors default to empty string
 	newAssignedTo, _ := promptOptional("")
 	if newAssignedTo != "" {
 		if newAssignedTo == "@me" {
@@ -326,6 +331,7 @@ func runInteractiveUpdate(client *api.Client, id int) error {
 	// Tags
 	currentTags := getCurrentValue("System.Tags")
 	fmt.Printf("Tags [%s]: ", currentTags)
+	//nolint:errcheck // User input is optional; errors default to empty string
 	newTags, _ := promptOptional("")
 	if newTags != "" {
 		fields["System.Tags"] = newTags
@@ -334,6 +340,7 @@ func runInteractiveUpdate(client *api.Client, id int) error {
 	// Priority
 	currentPriority := getCurrentValue("Microsoft.VSTS.Common.Priority")
 	fmt.Printf("Priority [%s]: ", currentPriority)
+	//nolint:errcheck // User input is optional; errors default to empty string
 	newPriority, _ := promptOptional("")
 	if newPriority != "" {
 		priority, err := strconv.Atoi(newPriority)
@@ -355,6 +362,7 @@ func runInteractiveUpdate(client *api.Client, id int) error {
 	}
 
 	fmt.Print("\nUpdate work item? (y/N): ")
+	//nolint:errcheck // User input is optional; errors default to empty string
 	confirm, _ := promptOptional("")
 	if confirm != "y" && confirm != "Y" {
 		fmt.Println("Update cancelled")
