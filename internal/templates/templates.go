@@ -20,8 +20,8 @@ type Template struct {
 
 // Relations represents work item relationships
 type Relations struct {
-	ParentID int              `yaml:"parentId,omitempty"`
-	Children []ChildWorkItem  `yaml:"children,omitempty"`
+	ParentID int             `yaml:"parentId,omitempty"`
+	Children []ChildWorkItem `yaml:"children,omitempty"`
 }
 
 // ChildWorkItem represents a child work item to be created
@@ -68,7 +68,7 @@ func GetTemplatePath(name string) (string, error) {
 
 	// Ensure .yaml extension
 	if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
-		name = name + ".yaml"
+		name += ".yaml"
 	}
 
 	return filepath.Join(templatesDir, name), nil
@@ -115,7 +115,7 @@ func Save(template *Template) error {
 		return fmt.Errorf("failed to marshal template: %w", err)
 	}
 
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := os.WriteFile(path, data, 0600); err != nil {
 		return fmt.Errorf("failed to write template: %w", err)
 	}
 
@@ -219,7 +219,7 @@ func Rename(oldName, newName string) error {
 	} else {
 		// Renaming file - ensure .yaml extension
 		if !strings.HasSuffix(newName, ".yaml") && !strings.HasSuffix(newName, ".yml") {
-			newName = newName + ".yaml"
+			newName += ".yaml"
 		}
 		newPath = filepath.Join(templatesDir, newName)
 	}

@@ -25,7 +25,7 @@ interactive work and traditional CLI commands for automation and scripting.`,
 			}
 			// If no subcommand is provided, launch the dashboard
 			// For now, we'll just show help
-			cmd.Help()
+			_ = cmd.Help()
 		},
 	}
 )
@@ -48,8 +48,8 @@ func init() {
 	rootCmd.Flags().BoolVarP(&showVersion, "version", "v", false, "Print version information")
 
 	// Bind flags to viper
-	viper.BindPFlag("organization", rootCmd.PersistentFlags().Lookup("org"))
-	viper.BindPFlag("project", rootCmd.PersistentFlags().Lookup("project"))
+	_ = viper.BindPFlag("organization", rootCmd.PersistentFlags().Lookup("org"))
+	_ = viper.BindPFlag("project", rootCmd.PersistentFlags().Lookup("project"))
 }
 
 func initConfig() {
@@ -73,8 +73,6 @@ func initConfig() {
 
 	viper.AutomaticEnv() // read in environment variables that match
 
-	// If a config file is found, read it in
-	if err := viper.ReadInConfig(); err == nil {
-		// Config file loaded successfully
-	}
+	// If a config file is found, read it in (ignore error - config file is optional)
+	_ = viper.ReadInConfig()
 }

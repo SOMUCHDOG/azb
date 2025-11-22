@@ -532,7 +532,7 @@ func downloadWorkItem(client *api.Client, wi workitemtracking.WorkItem) tea.Cmd 
 		filename := fmt.Sprintf("workitem-%d-%s.yaml", id, sanitized)
 		filePath := filepath.Join(templatesDir, filename)
 
-		if err := os.WriteFile(filePath, yamlData, 0644); err != nil {
+		if err := os.WriteFile(filePath, yamlData, 0600); err != nil {
 			logger.Printf("Failed to save template: %v", err)
 			return NotificationMsg{
 				Message: fmt.Sprintf("Failed to save template: %v", err),
@@ -696,10 +696,8 @@ func deleteWorkItemWithChildren(client *api.Client, parentID int, childIDs []int
 		}
 
 		logger.Printf("Deleted parent work item #%d", parentID)
-
-		message := fmt.Sprintf("Successfully deleted work item #%d", parentID)
 		if len(childIDs) > 0 {
-			message += fmt.Sprintf(" and %d child task(s)", len(childIDs))
+			logger.Printf("Also deleted %d child task(s)", len(childIDs))
 		}
 
 		return WorkItemDeletedMsg{
@@ -767,7 +765,7 @@ func prepareEditWorkItem(client *api.Client, wi workitemtracking.WorkItem) tea.C
 		}
 
 		tempFile := filepath.Join(tempDir, fmt.Sprintf("edit-workitem-%d.yaml", id))
-		if err := os.WriteFile(tempFile, yamlData, 0644); err != nil {
+		if err := os.WriteFile(tempFile, yamlData, 0600); err != nil {
 			logger.Printf("Failed to write temp file: %v", err)
 			return NotificationMsg{
 				Message: fmt.Sprintf("Failed to write temp file: %v", err),
@@ -910,12 +908,6 @@ func executeCreateWorkItemFromTemplate(client *api.Client, template *templates.T
 				childCount++
 			}
 			logger.Printf("Created %d child work items", childCount)
-		}
-
-		// Build success message
-		message := fmt.Sprintf("Created work item #%d", workItemID)
-		if childCount > 0 {
-			message += fmt.Sprintf(" with %d child task(s)", childCount)
 		}
 
 		return WorkItemCreatedMsg{

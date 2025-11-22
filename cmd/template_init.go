@@ -45,6 +45,7 @@ func runTemplateInit(cmd *cobra.Command, args []string) error {
 
 	// Get the template path to show the user
 	path, _ := templates.GetTemplatePath(name)
+	// Note: Error ignored intentionally - if we saved successfully, path should exist
 
 	fmt.Printf("✓ Template '%s' created\n", name)
 	fmt.Printf("\nTemplate file: %s\n", path)

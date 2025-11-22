@@ -286,7 +286,7 @@ func runInteractiveUpdate(client *api.Client, id int) error {
 	// Title
 	currentTitle := getCurrentValue("System.Title")
 	fmt.Printf("Title [%s]: ", currentTitle)
-	newTitle, _ := promptOptional("")
+	newTitle, _ := promptOptional("") // Error ignored - user input is optional
 	if newTitle != "" {
 		fields["System.Title"] = newTitle
 	}
@@ -298,7 +298,7 @@ func runInteractiveUpdate(client *api.Client, id int) error {
 		descPreview = descPreview[:47] + "..."
 	}
 	fmt.Printf("Description [%s]: ", descPreview)
-	newDesc, _ := promptOptional("")
+	newDesc, _ := promptOptional("") // Error ignored - user input is optional
 	if newDesc != "" {
 		fields["System.Description"] = newDesc
 	}
@@ -306,7 +306,7 @@ func runInteractiveUpdate(client *api.Client, id int) error {
 	// State
 	currentState := getCurrentValue("System.State")
 	fmt.Printf("State [%s]: ", currentState)
-	newState, _ := promptOptional("")
+	newState, _ := promptOptional("") // Error ignored - user input is optional
 	if newState != "" {
 		fields["System.State"] = newState
 	}
@@ -314,7 +314,7 @@ func runInteractiveUpdate(client *api.Client, id int) error {
 	// Assigned To
 	currentAssignedTo := getCurrentValue("System.AssignedTo")
 	fmt.Printf("Assigned To [%s]: ", currentAssignedTo)
-	newAssignedTo, _ := promptOptional("")
+	newAssignedTo, _ := promptOptional("") // Error ignored - user input is optional
 	if newAssignedTo != "" {
 		if newAssignedTo == "@me" {
 			fields["System.AssignedTo"] = ""
@@ -326,7 +326,7 @@ func runInteractiveUpdate(client *api.Client, id int) error {
 	// Tags
 	currentTags := getCurrentValue("System.Tags")
 	fmt.Printf("Tags [%s]: ", currentTags)
-	newTags, _ := promptOptional("")
+	newTags, _ := promptOptional("") // Error ignored - user input is optional
 	if newTags != "" {
 		fields["System.Tags"] = newTags
 	}
@@ -334,7 +334,7 @@ func runInteractiveUpdate(client *api.Client, id int) error {
 	// Priority
 	currentPriority := getCurrentValue("Microsoft.VSTS.Common.Priority")
 	fmt.Printf("Priority [%s]: ", currentPriority)
-	newPriority, _ := promptOptional("")
+	newPriority, _ := promptOptional("") // Error ignored - user input is optional
 	if newPriority != "" {
 		priority, err := strconv.Atoi(newPriority)
 		if err == nil && priority >= 1 && priority <= 4 {
@@ -355,7 +355,7 @@ func runInteractiveUpdate(client *api.Client, id int) error {
 	}
 
 	fmt.Print("\nUpdate work item? (y/N): ")
-	confirm, _ := promptOptional("")
+	confirm, _ := promptOptional("") // Error ignored - user input is optional
 	if confirm != "y" && confirm != "Y" {
 		fmt.Println("Update cancelled")
 		return nil

@@ -117,15 +117,14 @@ func (t *QueriesTab) handleEnter() (Tab, tea.Cmd) {
 			t.expandedFolders[item.Path] = !t.expandedFolders[item.Path]
 			t.rebuildList()
 			return t, nil
-		} else {
-			// Execute query and switch to Work Items tab
-			return t, tea.Batch(
-				t.executeQuery(item.query),
-				func() tea.Msg {
-					return SwitchToTabMsg{TabIndex: 1}
-				},
-			)
 		}
+		// Execute query and switch to Work Items tab
+		return t, tea.Batch(
+			t.executeQuery(item.query),
+			func() tea.Msg {
+				return SwitchToTabMsg{TabIndex: 1}
+			},
+		)
 	}
 	return t, nil
 }

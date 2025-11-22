@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/viper"
@@ -105,7 +106,7 @@ func TestGetConfigPath(t *testing.T) {
 	}
 
 	expectedSuffix := filepath.Join(".azure-boards-cli", "config.yaml")
-	if !filepath.HasPrefix(filepath.Base(filepath.Dir(path))+"/"+filepath.Base(path), ".azure-boards-cli/config.yaml") {
+	if !strings.HasSuffix(path, expectedSuffix) {
 		t.Errorf("Expected path to end with '%s', got '%s'", expectedSuffix, path)
 	}
 }
