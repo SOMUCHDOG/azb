@@ -72,7 +72,8 @@ func init() {
 	templateSaveCmd.Flags().StringVar(&createTagsFlag, "tags", "", "Default tags")
 	templateSaveCmd.Flags().StringArrayVar(&createFieldsFlag, "field", []string{}, "Custom field in format 'FieldName=value'")
 
-	_ = templateSaveCmd.MarkFlagRequired("type")
+	//nolint:errcheck // Flag requirement error is non-critical at init time
+	templateSaveCmd.MarkFlagRequired("type")
 }
 
 func runTemplateList(cmd *cobra.Command, args []string) error {
@@ -155,7 +156,8 @@ func runTemplateDelete(cmd *cobra.Command, args []string) error {
 	// Confirm deletion
 	fmt.Printf("Are you sure you want to delete template '%s'? (y/N): ", name)
 	var response string
-	_, _ = fmt.Scanln(&response)
+	//nolint:errcheck // User input error is acceptable - will default to 'no'
+	fmt.Scanln(&response)
 
 	if response != "y" && response != "Y" {
 		fmt.Println("Deletion cancelled")

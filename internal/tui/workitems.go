@@ -28,9 +28,10 @@ type WorkItemsTab struct {
 	relationshipData map[int]*relationshipInfo
 	list             list.Model
 	viewport         viewport.Model
-	selectedItem     *workitemtracking.WorkItem
-	showDetails      bool
-	loading          bool
+	selectedItem *workitemtracking.WorkItem
+	showDetails  bool
+	loading      bool
+	//nolint:unused // Reserved for future feature: async relationship loading
 	loadingRelations bool
 	initialized      bool
 	err              error
@@ -38,11 +39,16 @@ type WorkItemsTab struct {
 
 // relationshipInfo stores formatted relationship data for a work item
 type relationshipInfo struct {
-	parent      string
-	children    []string
-	prs         []string
+	//nolint:unused // Reserved for future feature: display parent work item
+	parent string
+	//nolint:unused // Reserved for future feature: display child work items
+	children []string
+	//nolint:unused // Reserved for future feature: display related pull requests
+	prs []string
+	//nolint:unused // Reserved for future feature: display related deployments
 	deployments []string
-	loaded      bool
+	//nolint:unused // Reserved for future feature: track relationship loading state
+	loaded bool
 }
 
 // NewWorkItemsTab creates a new work items tab

@@ -286,7 +286,8 @@ func runInteractiveUpdate(client *api.Client, id int) error {
 	// Title
 	currentTitle := getCurrentValue("System.Title")
 	fmt.Printf("Title [%s]: ", currentTitle)
-	newTitle, _ := promptOptional("") // Error ignored - user input is optional
+	//nolint:errcheck // User input is optional; errors default to empty string
+	newTitle, _ := promptOptional("")
 	if newTitle != "" {
 		fields["System.Title"] = newTitle
 	}
@@ -298,7 +299,8 @@ func runInteractiveUpdate(client *api.Client, id int) error {
 		descPreview = descPreview[:47] + "..."
 	}
 	fmt.Printf("Description [%s]: ", descPreview)
-	newDesc, _ := promptOptional("") // Error ignored - user input is optional
+	//nolint:errcheck // User input is optional; errors default to empty string
+	newDesc, _ := promptOptional("")
 	if newDesc != "" {
 		fields["System.Description"] = newDesc
 	}
@@ -306,7 +308,8 @@ func runInteractiveUpdate(client *api.Client, id int) error {
 	// State
 	currentState := getCurrentValue("System.State")
 	fmt.Printf("State [%s]: ", currentState)
-	newState, _ := promptOptional("") // Error ignored - user input is optional
+	//nolint:errcheck // User input is optional; errors default to empty string
+	newState, _ := promptOptional("")
 	if newState != "" {
 		fields["System.State"] = newState
 	}
@@ -314,7 +317,8 @@ func runInteractiveUpdate(client *api.Client, id int) error {
 	// Assigned To
 	currentAssignedTo := getCurrentValue("System.AssignedTo")
 	fmt.Printf("Assigned To [%s]: ", currentAssignedTo)
-	newAssignedTo, _ := promptOptional("") // Error ignored - user input is optional
+	//nolint:errcheck // User input is optional; errors default to empty string
+	newAssignedTo, _ := promptOptional("")
 	if newAssignedTo != "" {
 		if newAssignedTo == "@me" {
 			fields["System.AssignedTo"] = ""
@@ -326,7 +330,8 @@ func runInteractiveUpdate(client *api.Client, id int) error {
 	// Tags
 	currentTags := getCurrentValue("System.Tags")
 	fmt.Printf("Tags [%s]: ", currentTags)
-	newTags, _ := promptOptional("") // Error ignored - user input is optional
+	//nolint:errcheck // User input is optional; errors default to empty string
+	newTags, _ := promptOptional("")
 	if newTags != "" {
 		fields["System.Tags"] = newTags
 	}
@@ -334,7 +339,8 @@ func runInteractiveUpdate(client *api.Client, id int) error {
 	// Priority
 	currentPriority := getCurrentValue("Microsoft.VSTS.Common.Priority")
 	fmt.Printf("Priority [%s]: ", currentPriority)
-	newPriority, _ := promptOptional("") // Error ignored - user input is optional
+	//nolint:errcheck // User input is optional; errors default to empty string
+	newPriority, _ := promptOptional("")
 	if newPriority != "" {
 		priority, err := strconv.Atoi(newPriority)
 		if err == nil && priority >= 1 && priority <= 4 {
@@ -355,7 +361,8 @@ func runInteractiveUpdate(client *api.Client, id int) error {
 	}
 
 	fmt.Print("\nUpdate work item? (y/N): ")
-	confirm, _ := promptOptional("") // Error ignored - user input is optional
+	//nolint:errcheck // User input is optional; errors default to empty string
+	confirm, _ := promptOptional("")
 	if confirm != "y" && confirm != "Y" {
 		fmt.Println("Update cancelled")
 		return nil

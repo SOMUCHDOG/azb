@@ -25,7 +25,8 @@ interactive work and traditional CLI commands for automation and scripting.`,
 			}
 			// If no subcommand is provided, launch the dashboard
 			// For now, we'll just show help
-			_ = cmd.Help()
+			//nolint:errcheck // Help() error is not critical
+			cmd.Help()
 		},
 	}
 )
@@ -48,8 +49,10 @@ func init() {
 	rootCmd.Flags().BoolVarP(&showVersion, "version", "v", false, "Print version information")
 
 	// Bind flags to viper
-	_ = viper.BindPFlag("organization", rootCmd.PersistentFlags().Lookup("org"))
-	_ = viper.BindPFlag("project", rootCmd.PersistentFlags().Lookup("project"))
+	//nolint:errcheck // Flag binding errors are non-critical at init time
+	viper.BindPFlag("organization", rootCmd.PersistentFlags().Lookup("org"))
+	//nolint:errcheck // Flag binding errors are non-critical at init time
+	viper.BindPFlag("project", rootCmd.PersistentFlags().Lookup("project"))
 }
 
 func initConfig() {
@@ -74,5 +77,6 @@ func initConfig() {
 	viper.AutomaticEnv() // read in environment variables that match
 
 	// If a config file is found, read it in (ignore error - config file is optional)
-	_ = viper.ReadInConfig()
+	//nolint:errcheck // Config file is optional
+	viper.ReadInConfig()
 }
