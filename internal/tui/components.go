@@ -219,3 +219,10 @@ func RenderComingSoon(feature string) string {
 	message := MutedStyle.Render("Coming soon!")
 	return lipgloss.NewStyle().Padding(2).Render(title + "\n\n" + message)
 }
+
+// RenderDetailsPane renders a details pane with header and boxed content
+func RenderDetailsPane(title string, content string) string {
+	header := TitleStyle.Render(title)
+	box := BoxStyle.Render(content)
+	return lipgloss.JoinVertical(lipgloss.Left, header, box)
+}

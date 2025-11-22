@@ -177,8 +177,28 @@ func (t *WorkItemsTab) Update(msg tea.Msg) (Tab, tea.Cmd) {
 		cmds = append(cmds, cmd)
 	}
 
+	// Store previous selection to detect changes
+	var previousID int
+	if t.selectedItem != nil && t.selectedItem.Id != nil {
+		previousID = *t.selectedItem.Id
+	}
+
 	t.list, cmd = t.list.Update(msg)
 	cmds = append(cmds, cmd)
+
+	// If details are showing, check if selection changed and update viewport
+	if t.showDetails && len(t.list.Items()) > 0 {
+		selectedItem := t.list.SelectedItem()
+		if item, ok := selectedItem.(workItemItem); ok {
+			currentID := item.ID
+			// Only update if selection actually changed
+			if currentID != previousID {
+				t.selectedItem = &item.workItem
+				t.viewport.SetContent(t.formatWorkItemDetails(item.workItem))
+				t.viewport.GotoTop() // Reset scroll position for new item
+			}
+		}
+	}
 
 	return t, tea.Batch(cmds...)
 }
@@ -194,9 +214,13 @@ func (t *WorkItemsTab) View() string {
 	}
 
 	if t.showDetails {
-		detailsHeader := TitleStyle.Render("Work Item Details")
-		detailsView := BoxStyle.Render(t.viewport.View())
-		return lipgloss.JoinVertical(lipgloss.Left, t.list.View(), detailsHeader, detailsView)
+		listView := t.list.View()
+		detailsPane := RenderDetailsPane("Work Item Details", t.viewport.View())
+		combined := lipgloss.JoinVertical(lipgloss.Left, listView, detailsPane)
+
+		// Ensure total height doesn't exceed ContentHeight()
+		maxHeight := t.ContentHeight()
+		return lipgloss.NewStyle().MaxHeight(maxHeight).Render(combined)
 	}
 
 	return t.list.View()
@@ -215,7 +239,8 @@ func (t *WorkItemsTab) updateSizes() {
 		detailsHeight := t.ContentHeight() - listHeight
 		t.list.SetSize(t.Width(), listHeight)
 		t.viewport.Width = t.Width() - 4
-		t.viewport.Height = detailsHeight - 4
+		// Account for BoxStyle border (2) + padding (2) + details header (1) = 5 lines
+		t.viewport.Height = detailsHeight - 5
 	} else {
 		t.list.SetSize(t.Width(), t.ContentHeight())
 	}

@@ -65,11 +65,10 @@ func (t *TabBase) Height() int {
 }
 
 // ContentHeight returns the height available for content
-// (accounting for header, footer, and tab bar)
+// (accounting for header and tab bar)
 func (t *TabBase) ContentHeight() int {
 	headerHeight := 3
 	tabBarHeight := 1
-	footerHeight := 1
-	margins := headerHeight + tabBarHeight + footerHeight
+	margins := headerHeight + tabBarHeight
 	return t.height - margins
 }
