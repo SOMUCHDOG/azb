@@ -1,3 +1,10 @@
+## [1.0.3](https://github.com/SOMUCHDOG/ado-admin/compare/v1.0.2...v1.0.3) (2025-11-22)
+
+
+### Bug Fixes
+
+* update repository references in GoReleaser config ([1569632](https://github.com/SOMUCHDOG/ado-admin/commit/15696329e5861fea48c358d26f75f8b0c847b7a1))
+
 ## [1.0.2](https://github.com/SOMUCHDOG/ado-admin/compare/v1.0.1...v1.0.2) (2025-11-22)
 
 
