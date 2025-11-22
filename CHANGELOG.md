@@ -1,3 +1,11 @@
+## [1.0.1](https://github.com/SOMUCHDOG/ado-admin/compare/v1.0.0...v1.0.1) (2025-11-22)
+
+
+### Bug Fixes
+
+* downgrade to Node 20 and manually capture semantic-release outputs ([461e3cd](https://github.com/SOMUCHDOG/ado-admin/commit/461e3cd40c3b130c08934c63b2cd0d0c45236ffe))
+* use semantic-release-action to properly expose step outputs ([1131118](https://github.com/SOMUCHDOG/ado-admin/commit/1131118843ab65e23f41e8a496e0247da0c412dd))
+
 ## 1.0.0 (2025-11-22)
 
 
