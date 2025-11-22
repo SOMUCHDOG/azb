@@ -1,5 +1,10 @@
 # Azure Boards CLI
 
+[![CI](https://github.com/casey/azure-boards-cli/actions/workflows/test.yml/badge.svg)](https://github.com/casey/azure-boards-cli/actions/workflows/test.yml)
+[![Release](https://github.com/casey/azure-boards-cli/actions/workflows/release.yml/badge.svg)](https://github.com/casey/azure-boards-cli/actions/workflows/release.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/casey/azure-boards-cli)](https://goreportcard.com/report/github.com/casey/azure-boards-cli)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A cross-platform command-line interface for managing Azure Boards work items.
 
 ## Features
@@ -16,10 +21,38 @@ A cross-platform command-line interface for managing Azure Boards work items.
 
 ## Installation
 
+### Pre-built Binaries (Recommended)
+
+Download the latest release for your platform from the [Releases page](https://github.com/casey/azure-boards-cli/releases).
+
+#### macOS
+
+```bash
+# Intel
+curl -L https://github.com/casey/azure-boards-cli/releases/latest/download/azb_Darwin_x86_64.tar.gz | tar xz
+sudo mv azb /usr/local/bin/
+
+# Apple Silicon
+curl -L https://github.com/casey/azure-boards-cli/releases/latest/download/azb_Darwin_arm64.tar.gz | tar xz
+sudo mv azb /usr/local/bin/
+```
+
+#### Linux
+
+```bash
+# AMD64
+curl -L https://github.com/casey/azure-boards-cli/releases/latest/download/azb_Linux_x86_64.tar.gz | tar xz
+sudo mv azb /usr/local/bin/
+```
+
+#### Windows
+
+Download the `.zip` file for your architecture from the [Releases page](https://github.com/casey/azure-boards-cli/releases), extract it, and add to your PATH.
+
 ### From Source
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/casey/azure-boards-cli
 cd azure-boards-cli
 go build -o azb
 ```
@@ -576,7 +609,74 @@ And that it hasn't expired.
 
 ## Contributing
 
-See [SPEC.md](SPEC.md) for the full technical specification and development roadmap.
+Contributions are welcome! This project uses automated semantic versioning based on commit messages.
+
+### Commit Message Format
+
+This project follows the [Conventional Commits](https://www.conventionalcommits.org/) specification. Each commit message should be structured as follows:
+
+```
+<type>(<scope>): <description>
+
+[optional body]
+
+[optional footer]
+```
+
+**Types:**
+- `feat:` A new feature (triggers minor version bump)
+- `fix:` A bug fix (triggers patch version bump)
+- `perf:` Performance improvement (triggers patch version bump)
+- `refactor:` Code refactoring (triggers patch version bump)
+- `docs:` Documentation only changes (no version bump)
+- `test:` Adding or updating tests (no version bump)
+- `chore:` Maintenance tasks (no version bump)
+- `ci:` CI/CD changes (no version bump)
+
+**Breaking Changes:**
+Add `BREAKING CHANGE:` in the footer or `!` after the type to trigger a major version bump:
+```
+feat!: remove support for legacy API
+```
+
+**Examples:**
+```bash
+feat(auth): add support for OAuth authentication
+fix(list): handle empty work item response correctly
+docs: update installation instructions
+chore(deps): update dependencies
+```
+
+### Development Workflow
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feat/my-feature`
+3. Make your changes
+4. Write tests for your changes
+5. Run tests: `go test ./...`
+6. Run linter: `golangci-lint run`
+7. Commit with conventional commit message
+8. Push to your fork
+9. Open a Pull Request
+
+### CI/CD Pipeline
+
+The project uses GitHub Actions for continuous integration and deployment:
+
+- **CI Workflow**: Runs on every push and PR
+  - Linting with golangci-lint
+  - Testing with `go test`
+  - Build verification for all platforms
+
+- **Release Workflow**: Runs on push to main branch
+  - Analyzes commit messages for semantic versioning
+  - Creates git tags and GitHub releases automatically
+  - Builds binaries for multiple platforms using GoReleaser
+  - Generates changelog from commit messages
+
+Releases are fully automated - just merge to main with proper commit messages!
+
+For more details, see [SPEC.md](SPEC.md) for the full technical specification and development roadmap.
 
 ## License
 

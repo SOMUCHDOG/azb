@@ -1,0 +1,87 @@
+run:
+  timeout: 5m
+  tests: true
+  modules-download-mode: readonly
+
+output:
+  formats:
+    - format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
+
+linters:
+  enable:
+    - errcheck      # Check for unchecked errors
+    - gosimple      # Suggest code simplifications
+    - govet         # Reports suspicious constructs
+    - ineffassign   # Detects unused assignments
+    - staticcheck   # Advanced Go linter
+    - unused        # Checks for unused constants, variables, functions and types
+    - gofmt         # Checks whether code was gofmt-ed
+    - goimports     # Check import statements are formatted
+    - misspell      # Finds commonly misspelled English words
+    - revive        # Fast, configurable, extensible, flexible, and beautiful linter for Go
+    - typecheck     # Standard Go type checker
+    - gosec         # Security-focused linter
+    - gocritic      # Provides diagnostics that check for bugs, performance and style issues
+    - nolintlint    # Reports ill-formed or insufficient nolint directives
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+
+  govet:
+    enable-all: true
+    disable:
+      - shadow
+
+  gofmt:
+    simplify: true
+
+  goimports:
+    local-prefixes: github.com/casey/azure-boards-cli
+
+  revive:
+    rules:
+      - name: unused-parameter
+        disabled: true
+      - name: unexported-return
+        disabled: true
+      - name: indent-error-flow
+        severity: warning
+      - name: add-constant
+        disabled: true
+
+  gosec:
+    excludes:
+      - G304  # File path provided as taint input (needed for config file paths)
+      - G204  # Subprocess launched with variable (needed for external commands)
+
+  gocritic:
+    disabled-checks:
+      - ifElseChain
+      - singleCaseSwitch
+
+issues:
+  exclude-rules:
+    # Exclude some linters from running on tests files
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gosec
+        - gocritic
+
+    # Exclude known issues in TUI code (Bubble Tea event handlers)
+    - path: internal/tui/
+      linters:
+        - errcheck
+
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+  exclude-dirs:
+    - vendor
+    - notes
+    - .git
+    - .github

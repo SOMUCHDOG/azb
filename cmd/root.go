@@ -9,14 +9,20 @@ import (
 )
 
 var (
-	cfgFile string
-	rootCmd = &cobra.Command{
+	cfgFile     string
+	showVersion bool
+	rootCmd     = &cobra.Command{
 		Use:   "azb",
 		Short: "Azure Boards CLI - Manage work items from your terminal",
 		Long: `Azure Boards CLI is a cross-platform command-line interface for managing
 Azure Boards work items. It provides both a Terminal UI dashboard for
 interactive work and traditional CLI commands for automation and scripting.`,
 		Run: func(cmd *cobra.Command, args []string) {
+			// If version flag is set, show version
+			if showVersion {
+				versionCmd.Run(cmd, args)
+				return
+			}
 			// If no subcommand is provided, launch the dashboard
 			// For now, we'll just show help
 			cmd.Help()
@@ -39,6 +45,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.azure-boards-cli/config.yaml)")
 	rootCmd.PersistentFlags().String("org", "", "Azure DevOps organization")
 	rootCmd.PersistentFlags().String("project", "", "Azure DevOps project")
+	rootCmd.Flags().BoolVarP(&showVersion, "version", "v", false, "Print version information")
 
 	// Bind flags to viper
 	viper.BindPFlag("organization", rootCmd.PersistentFlags().Lookup("org"))
