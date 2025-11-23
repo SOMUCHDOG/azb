@@ -1,3 +1,10 @@
+## [1.1.0](https://github.com/SOMUCHDOG/ado-admin/compare/v1.0.3...v1.1.0) (2025-11-23)
+
+
+### Features
+
+* implement change state, assign, and add tags actions for work items ([5d3d730](https://github.com/SOMUCHDOG/ado-admin/commit/5d3d73053646ba7cba8eb87788b09da5d933407f))
+
 ## [1.0.3](https://github.com/SOMUCHDOG/ado-admin/compare/v1.0.2...v1.0.3) (2025-11-22)
 
 
