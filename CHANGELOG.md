@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/SOMUCHDOG/ado-admin/compare/v1.1.0...v1.1.1) (2025-11-23)
+
+
+### Bug Fixes
+
+* add success notification for work item updates ([8a93495](https://github.com/SOMUCHDOG/ado-admin/commit/8a93495e1117d6056b759447f1fca73a8335ecf7))
+
 ## [1.1.0](https://github.com/SOMUCHDOG/ado-admin/compare/v1.0.3...v1.1.0) (2025-11-23)
 
 
