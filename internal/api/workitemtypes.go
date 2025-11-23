@@ -72,3 +72,23 @@ func (c *Client) GetFieldDefinition(workItemTypeName, fieldReferenceName string)
 
 	return nil, fmt.Errorf("field '%s' not found for work item type '%s'", fieldReferenceName, workItemTypeName)
 }
+
+// GetWorkItemStates returns a list of valid states for a work item type
+func (c *Client) GetWorkItemStates(workItemTypeName string) ([]string, error) {
+	workItemType, err := c.GetWorkItemType(workItemTypeName)
+	if err != nil {
+		return nil, err
+	}
+
+	var states []string
+
+	if workItemType.States != nil {
+		for _, state := range *workItemType.States {
+			if state.Name != nil {
+				states = append(states, *state.Name)
+			}
+		}
+	}
+
+	return states, nil
+}

@@ -44,15 +44,16 @@ func init() {
 
 // Dashboard is the main TUI model that coordinates tabs
 type Dashboard struct {
-	client       *api.Client
-	tabs         []Tab
-	currentTab   int
-	width        int
-	height       int
-	notification *Notification
-	inputPrompt  *InputPrompt
-	confirmation *ConfirmationDialog
-	err          error
+	client        *api.Client
+	tabs          []Tab
+	currentTab    int
+	width         int
+	height        int
+	notification  *Notification
+	inputPrompt   *InputPrompt
+	selectionDlg  *SelectionDialog
+	confirmation  *ConfirmationDialog
+	err           error
 
 	// Controllers
 	keybinds *KeybindController
@@ -69,6 +70,7 @@ func NewDashboard(client *api.Client) *Dashboard {
 		client:       client,
 		notification: NewNotification("", false),
 		inputPrompt:  NewInputPrompt(),
+		selectionDlg: NewSelectionDialog(),
 		confirmation: NewConfirmationDialog(),
 		keybinds:     keybinds,
 		actions:      NewActionController(keybinds),
@@ -125,6 +127,38 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return d, tea.Batch(cmds...)
 
 	case tea.KeyMsg:
+		// Handle global selection dialog
+		if d.selectionDlg.Active {
+			switch msg.String() {
+			case "up", "k":
+				d.selectionDlg.MoveUp()
+				return d, nil
+			case "down", "j":
+				d.selectionDlg.MoveDown()
+				return d, nil
+			case "enter":
+				value := d.selectionDlg.SelectedValue()
+				action := d.selectionDlg.Action
+				context := d.selectionDlg.Context
+				d.selectionDlg.Hide()
+
+				// Handle action based on type
+				if action == "change_state" {
+					if workItemID, ok := context.(int); ok {
+						logger.Printf("Changing state of work item #%d to '%s'", workItemID, value)
+						return d, changeWorkItemState(d.client, workItemID, value)
+					}
+				}
+
+				logger.Printf("Selection submitted: %s (action: %s)", value, action)
+				return d, nil
+			case "esc":
+				d.selectionDlg.Hide()
+				return d, nil
+			}
+			return d, nil
+		}
+
 		// Handle global input prompt
 		if d.inputPrompt.Active {
 			switch msg.Type {
@@ -163,6 +197,16 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							return RefreshTemplatesMsg{}
 						},
 					)
+				} else if action == "assign_work_item" {
+					if workItemID, ok := context.(int); ok {
+						logger.Printf("Assigning work item #%d to '%s'", workItemID, value)
+						return d, assignWorkItem(d.client, workItemID, value)
+					}
+				} else if action == "add_tags" {
+					if workItemID, ok := context.(int); ok {
+						logger.Printf("Adding tags '%s' to work item #%d", value, workItemID)
+						return d, addWorkItemTags(d.client, workItemID, value)
+					}
 				}
 
 				logger.Printf("Input submitted: %s (action: %s)", value, action)
@@ -261,6 +305,30 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if d.keybinds.Matches(msg, "workitems", "delete") {
 						logger.Printf("Delete action triggered")
 						return d, workitemsTab.handleDeleteAction()
+					}
+					// Change state (s key)
+					if d.keybinds.Matches(msg, "workitems", "change_state") {
+						logger.Printf("Change state action triggered")
+						if selectionDlg := workitemsTab.handleChangeStateAction(); selectionDlg != nil {
+							d.selectionDlg = selectionDlg
+						}
+						return d, nil
+					}
+					// Assign work item (a key)
+					if d.keybinds.Matches(msg, "workitems", "assign") {
+						logger.Printf("Assign action triggered")
+						if prompt := workitemsTab.handleAssignAction(); prompt != nil {
+							d.inputPrompt = prompt
+						}
+						return d, nil
+					}
+					// Add tags (t key)
+					if d.keybinds.Matches(msg, "workitems", "add_tags") {
+						logger.Printf("Add tags action triggered")
+						if prompt := workitemsTab.handleAddTagsAction(); prompt != nil {
+							d.inputPrompt = prompt
+						}
+						return d, nil
 					}
 				}
 			}
@@ -628,6 +696,10 @@ func (d *Dashboard) View() string {
 
 	if d.inputPrompt.Active {
 		parts = append(parts, d.inputPrompt.View())
+	}
+
+	if d.selectionDlg.Active {
+		parts = append(parts, d.selectionDlg.View())
 	}
 
 	if d.confirmation.Active {

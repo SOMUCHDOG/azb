@@ -226,3 +226,82 @@ func RenderDetailsPane(title string, content string) string {
 	box := BoxStyle.Render(content)
 	return lipgloss.JoinVertical(lipgloss.Left, header, box)
 }
+
+// SelectionDialog displays a list of options for user selection
+type SelectionDialog struct {
+	Title       string
+	Options     []string
+	Selected    int
+	Active      bool
+	Action      string      // What action this selection is for
+	Context     interface{} // Additional context for the action
+}
+
+// NewSelectionDialog creates a new selection dialog
+func NewSelectionDialog() *SelectionDialog {
+	return &SelectionDialog{
+		Active:   false,
+		Selected: 0,
+	}
+}
+
+// Show displays the selection dialog
+func (s *SelectionDialog) Show(title string, options []string, action string, context interface{}) {
+	s.Title = title
+	s.Options = options
+	s.Action = action
+	s.Context = context
+	s.Active = true
+	s.Selected = 0
+}
+
+// Hide hides the selection dialog
+func (s *SelectionDialog) Hide() {
+	s.Active = false
+}
+
+// MoveUp moves the selection up
+func (s *SelectionDialog) MoveUp() {
+	if s.Selected > 0 {
+		s.Selected--
+	}
+}
+
+// MoveDown moves the selection down
+func (s *SelectionDialog) MoveDown() {
+	if s.Selected < len(s.Options)-1 {
+		s.Selected++
+	}
+}
+
+// SelectedValue returns the currently selected option
+func (s *SelectionDialog) SelectedValue() string {
+	if s.Selected >= 0 && s.Selected < len(s.Options) {
+		return s.Options[s.Selected]
+	}
+	return ""
+}
+
+// View renders the selection dialog
+func (s *SelectionDialog) View() string {
+	if !s.Active {
+		return ""
+	}
+
+	title := DialogTitleStyle.Render(s.Title)
+
+	var optionLines []string
+	for i, option := range s.Options {
+		if i == s.Selected {
+			optionLines = append(optionLines, SelectedOptionStyle.Render("▸ "+option))
+		} else {
+			optionLines = append(optionLines, NormalStyle.Render("  "+option))
+		}
+	}
+
+	optionsView := strings.Join(optionLines, "\n")
+	help := MutedStyle.Render("(↑/↓ or j/k: navigate, Enter: select, Esc: cancel)")
+
+	content := fmt.Sprintf("%s\n\n%s\n\n%s", title, optionsView, help)
+	return DialogBoxStyle.Render(content)
+}
