@@ -157,7 +157,15 @@ func (t *WorkItemsTab) Update(msg tea.Msg) (Tab, tea.Cmd) {
 		}
 		// Trigger a refresh to get the latest work item data
 		t.loading = true
-		return t, t.fetchWorkItems()
+		return t, tea.Batch(
+			t.fetchWorkItems(),
+			func() tea.Msg {
+				return NotificationMsg{
+					Message: fmt.Sprintf("Work item #%d updated successfully", *msg.WorkItem.Id),
+					IsError: false,
+				}
+			},
+		)
 
 	case tea.KeyMsg:
 		switch {
