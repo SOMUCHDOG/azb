@@ -1,9 +1,12 @@
 # Azure Boards CLI
 
-[![CI](https://github.com/casey/azure-boards-cli/actions/workflows/test.yml/badge.svg)](https://github.com/casey/azure-boards-cli/actions/workflows/test.yml)
-[![Release](https://github.com/casey/azure-boards-cli/actions/workflows/release.yml/badge.svg)](https://github.com/casey/azure-boards-cli/actions/workflows/release.yml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/casey/azure-boards-cli)](https://goreportcard.com/report/github.com/casey/azure-boards-cli)
+[![CI](https://github.com/SOMUCHDOG/ado-admin/actions/workflows/test.yml/badge.svg)](https://github.com/SOMUCHDOG/ado-admin/actions/workflows/test.yml)
+[![Release](https://github.com/SOMUCHDOG/ado-admin/actions/workflows/release.yml/badge.svg)](https://github.com/SOMUCHDOG/ado-admin/actions/workflows/release.yml)
+[![Latest Release](https://img.shields.io/github/v/release/SOMUCHDOG/ado-admin)](https://github.com/SOMUCHDOG/ado-admin/releases/latest)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/SOMUCHDOG/ado-admin)](go.mod)
+[![Go Report Card](https://goreportcard.com/badge/github.com/SOMUCHDOG/ado-admin)](https://goreportcard.com/report/github.com/SOMUCHDOG/ado-admin)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Platform Support](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)](#installation)
 
 A cross-platform command-line interface for managing Azure Boards work items.
 
@@ -23,17 +26,17 @@ A cross-platform command-line interface for managing Azure Boards work items.
 
 ### Pre-built Binaries (Recommended)
 
-Download the latest release for your platform from the [Releases page](https://github.com/casey/azure-boards-cli/releases).
+Download the latest release for your platform from the [Releases page](https://github.com/SOMUCHDOG/ado-admin/releases).
 
 #### macOS
 
 ```bash
 # Intel
-curl -L https://github.com/casey/azure-boards-cli/releases/latest/download/azb_Darwin_x86_64.tar.gz | tar xz
+curl -L https://github.com/SOMUCHDOG/ado-admin/releases/latest/download/azb_Darwin_x86_64.tar.gz | tar xz
 sudo mv azb /usr/local/bin/
 
 # Apple Silicon
-curl -L https://github.com/casey/azure-boards-cli/releases/latest/download/azb_Darwin_arm64.tar.gz | tar xz
+curl -L https://github.com/SOMUCHDOG/ado-admin/releases/latest/download/azb_Darwin_arm64.tar.gz | tar xz
 sudo mv azb /usr/local/bin/
 ```
 
@@ -41,19 +44,19 @@ sudo mv azb /usr/local/bin/
 
 ```bash
 # AMD64
-curl -L https://github.com/casey/azure-boards-cli/releases/latest/download/azb_Linux_x86_64.tar.gz | tar xz
+curl -L https://github.com/SOMUCHDOG/ado-admin/releases/latest/download/azb_Linux_x86_64.tar.gz | tar xz
 sudo mv azb /usr/local/bin/
 ```
 
 #### Windows
 
-Download the `.zip` file for your architecture from the [Releases page](https://github.com/casey/azure-boards-cli/releases), extract it, and add to your PATH.
+Download the `.zip` file for your architecture from the [Releases page](https://github.com/SOMUCHDOG/ado-admin/releases), extract it, and add to your PATH.
 
 ### From Source
 
 ```bash
-git clone https://github.com/casey/azure-boards-cli
-cd azure-boards-cli
+git clone https://github.com/SOMUCHDOG/ado-admin
+cd ado-admin
 go build -o azb
 ```
 
