@@ -44,16 +44,16 @@ func init() {
 
 // Dashboard is the main TUI model that coordinates tabs
 type Dashboard struct {
-	client        *api.Client
-	tabs          []Tab
-	currentTab    int
-	width         int
-	height        int
-	notification  *Notification
-	inputPrompt   *InputPrompt
-	selectionDlg  *SelectionDialog
-	confirmation  *ConfirmationDialog
-	err           error
+	client       *api.Client
+	tabs         []Tab
+	currentTab   int
+	width        int
+	height       int
+	notification *Notification
+	inputPrompt  *InputPrompt
+	selectionDlg *SelectionDialog
+	confirmation *ConfirmationDialog
+	err          error
 
 	// Controllers
 	keybinds *KeybindController
@@ -82,8 +82,8 @@ func NewDashboard(client *api.Client) *Dashboard {
 		NewQueriesTab(client, 0, 0),
 		NewWorkItemsTab(client, 0, 0),
 		NewTemplatesTab(client, 0, 0),
-		NewPipelinesTab(0, 0),
-		NewAgentsTab(0, 0),
+		//	NewPipelinesTab(0, 0),
+		//	NewAgentsTab(0, 0),
 	}
 
 	return dashboard
