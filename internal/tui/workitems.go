@@ -149,6 +149,16 @@ func (t *WorkItemsTab) Update(msg tea.Msg) (Tab, tea.Cmd) {
 			return NotificationMsg{Message: fmt.Sprintf("Deleted work item %d", msg.ID), IsError: false}
 		}
 
+	case WorkItemUpdatedMsg:
+		if msg.Error != nil {
+			return t, func() tea.Msg {
+				return NotificationMsg{Message: fmt.Sprintf("Update failed: %v", msg.Error), IsError: true}
+			}
+		}
+		// Trigger a refresh to get the latest work item data
+		t.loading = true
+		return t, t.fetchWorkItems()
+
 	case tea.KeyMsg:
 		switch {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
@@ -919,6 +929,213 @@ func executeCreateWorkItemFromTemplate(client *api.Client, template *templates.T
 
 		return WorkItemCreatedMsg{
 			WorkItem: workItem,
+			Error:    nil,
+		}
+	}
+}
+
+// handleChangeStateAction fetches valid states and shows a selection dialog
+func (t *WorkItemsTab) handleChangeStateAction() *SelectionDialog {
+	selectedItem := t.list.SelectedItem()
+	if item, ok := selectedItem.(workItemItem); ok {
+		workItemID := *item.workItem.Id
+		workItemType := getStringField(&item.workItem, "System.WorkItemType")
+
+		// Fetch valid states for this work item type
+		states, err := t.client.GetWorkItemStates(workItemType)
+		if err != nil {
+			logger.Printf("Failed to fetch states for work item type '%s': %v", workItemType, err)
+			// Return nil so no dialog is shown
+			return nil
+		}
+
+		if len(states) == 0 {
+			logger.Printf("No states found for work item type '%s'", workItemType)
+			return nil
+		}
+
+		// Create and show selection dialog
+		dialog := NewSelectionDialog()
+		dialog.Show(
+			fmt.Sprintf("Change State for Work Item #%d", workItemID),
+			states,
+			"change_state",
+			workItemID,
+		)
+		logger.Printf("Showing state selection dialog for work item #%d (%d states)", workItemID, len(states))
+		return dialog
+	}
+	return nil
+}
+
+// handleAssignAction shows an input prompt for assigning a work item
+func (t *WorkItemsTab) handleAssignAction() *InputPrompt {
+	selectedItem := t.list.SelectedItem()
+	if item, ok := selectedItem.(workItemItem); ok {
+		workItemID := *item.workItem.Id
+
+		// Create and show input prompt
+		prompt := NewInputPrompt()
+		prompt.Show(
+			fmt.Sprintf("Assign Work Item #%d", workItemID),
+			"Enter assignee email or display name",
+			"assign_work_item",
+			workItemID,
+		)
+		logger.Printf("Showing assign input prompt for work item #%d", workItemID)
+		return prompt
+	}
+	return nil
+}
+
+// handleAddTagsAction shows an input prompt for adding tags to a work item
+func (t *WorkItemsTab) handleAddTagsAction() *InputPrompt {
+	selectedItem := t.list.SelectedItem()
+	if item, ok := selectedItem.(workItemItem); ok {
+		workItemID := *item.workItem.Id
+
+		// Create and show input prompt
+		prompt := NewInputPrompt()
+		prompt.Show(
+			fmt.Sprintf("Add Tags to Work Item #%d", workItemID),
+			"Enter tags separated by commas",
+			"add_tags",
+			workItemID,
+		)
+		logger.Printf("Showing add tags input prompt for work item #%d", workItemID)
+		return prompt
+	}
+	return nil
+}
+
+// changeWorkItemState changes the state of a work item
+func changeWorkItemState(client *api.Client, workItemID int, newState string) tea.Cmd {
+	return func() tea.Msg {
+		logger.Printf("Changing state of work item #%d to '%s'", workItemID, newState)
+
+		// Update the work item state
+		fields := map[string]interface{}{
+			"System.State": newState,
+		}
+
+		workItem, err := client.UpdateWorkItem(workItemID, fields)
+		if err != nil {
+			logger.Printf("Failed to change state of work item #%d: %v", workItemID, err)
+			return WorkItemUpdatedMsg{
+				WorkItem: nil,
+				Error:    err,
+			}
+		}
+
+		logger.Printf("Successfully changed state of work item #%d to '%s'", workItemID, newState)
+		return WorkItemUpdatedMsg{
+			WorkItem: workItem,
+			Error:    nil,
+		}
+	}
+}
+
+// assignWorkItem assigns a work item to a user
+func assignWorkItem(client *api.Client, workItemID int, assignee string) tea.Cmd {
+	return func() tea.Msg {
+		logger.Printf("Assigning work item #%d to '%s'", workItemID, assignee)
+
+		// Update the work item assignee
+		fields := map[string]interface{}{
+			"System.AssignedTo": assignee,
+		}
+
+		workItem, err := client.UpdateWorkItem(workItemID, fields)
+		if err != nil {
+			logger.Printf("Failed to assign work item #%d: %v", workItemID, err)
+			return WorkItemUpdatedMsg{
+				WorkItem: nil,
+				Error:    err,
+			}
+		}
+
+		logger.Printf("Successfully assigned work item #%d to '%s'", workItemID, assignee)
+		return WorkItemUpdatedMsg{
+			WorkItem: workItem,
+			Error:    nil,
+		}
+	}
+}
+
+// addWorkItemTags adds tags to a work item
+func addWorkItemTags(client *api.Client, workItemID int, tagsInput string) tea.Cmd {
+	return func() tea.Msg {
+		logger.Printf("Adding tags '%s' to work item #%d", tagsInput, workItemID)
+
+		// Fetch the current work item to get existing tags
+		workItem, err := client.GetWorkItem(workItemID)
+		if err != nil {
+			logger.Printf("Failed to fetch work item #%d: %v", workItemID, err)
+			return NotificationMsg{
+				Message: fmt.Sprintf("Failed to fetch work item: %v", err),
+				IsError: true,
+			}
+		}
+
+		// Get existing tags
+		var existingTags []string
+		if workItem.Fields != nil {
+			if tagsValue, ok := (*workItem.Fields)["System.Tags"]; ok {
+				if tagsStr, ok := tagsValue.(string); ok && tagsStr != "" {
+					existingTags = strings.Split(tagsStr, ";")
+					// Trim spaces
+					for i := range existingTags {
+						existingTags[i] = strings.TrimSpace(existingTags[i])
+					}
+				}
+			}
+		}
+
+		// Parse new tags from input (comma-separated)
+		newTags := strings.Split(tagsInput, ",")
+		for i := range newTags {
+			newTags[i] = strings.TrimSpace(newTags[i])
+		}
+
+		// Merge tags, avoiding duplicates
+		tagSet := make(map[string]bool)
+		for _, tag := range existingTags {
+			if tag != "" {
+				tagSet[tag] = true
+			}
+		}
+		for _, tag := range newTags {
+			if tag != "" {
+				tagSet[tag] = true
+			}
+		}
+
+		// Convert back to slice
+		var allTags []string
+		for tag := range tagSet {
+			allTags = append(allTags, tag)
+		}
+
+		// Join with semicolons (Azure DevOps format)
+		tagsStr := strings.Join(allTags, ";")
+
+		// Update the work item tags
+		fields := map[string]interface{}{
+			"System.Tags": tagsStr,
+		}
+
+		updatedWorkItem, err := client.UpdateWorkItem(workItemID, fields)
+		if err != nil {
+			logger.Printf("Failed to add tags to work item #%d: %v", workItemID, err)
+			return WorkItemUpdatedMsg{
+				WorkItem: nil,
+				Error:    err,
+			}
+		}
+
+		logger.Printf("Successfully added tags to work item #%d", workItemID)
+		return WorkItemUpdatedMsg{
+			WorkItem: updatedWorkItem,
 			Error:    nil,
 		}
 	}

@@ -120,6 +120,11 @@ var (
 	InputTitleStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color(ColorPrimary))
+
+	// Selection dialog styles
+	SelectedOptionStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color(ColorPrimary))
 )
 
 // Helper functions for common styling patterns
