@@ -1,4 +1,4 @@
-# Azure Boards CLI
+# Azure Boards CLI (azb)
 
 [![CI](https://github.com/SOMUCHDOG/ado-admin/actions/workflows/test.yml/badge.svg)](https://github.com/SOMUCHDOG/ado-admin/actions/workflows/test.yml)
 [![Release](https://github.com/SOMUCHDOG/ado-admin/actions/workflows/release.yml/badge.svg)](https://github.com/SOMUCHDOG/ado-admin/actions/workflows/release.yml)
