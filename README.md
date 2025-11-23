@@ -681,6 +681,3 @@ Releases are fully automated - just merge to main with proper commit messages!
 
 For more details, see [SPEC.md](SPEC.md) for the full technical specification and development roadmap.
 
-## License
-
-MIT License
