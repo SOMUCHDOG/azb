@@ -607,7 +607,7 @@ func downloadWorkItem(client *api.Client, wi workitemtracking.WorkItem) tea.Cmd 
 		}
 
 		// Convert to template format
-		template := convertWorkItemToTemplate(fullWI)
+		template := convertWorkItemToTemplate(client, fullWI)
 
 		// Serialize to YAML
 		yamlData, err := yaml.Marshal(template)
@@ -646,7 +646,7 @@ func downloadWorkItem(client *api.Client, wi workitemtracking.WorkItem) tea.Cmd 
 }
 
 // convertWorkItemToTemplate converts a work item to a template
-func convertWorkItemToTemplate(wi *workitemtracking.WorkItem) *templates.Template {
+func convertWorkItemToTemplate(client *api.Client, wi *workitemtracking.WorkItem) *templates.Template {
 	template := &templates.Template{
 		Name:        getStringField(wi, "System.Title"),
 		Type:        getStringField(wi, "System.WorkItemType"),
@@ -700,10 +700,23 @@ func convertWorkItemToTemplate(wi *workitemtracking.WorkItem) *templates.Templat
 						if template.Relations == nil {
 							template.Relations = &templates.Relations{}
 						}
-						// Create child entry with ID as reference
+
+						// Fetch child work item details to get title and type
+						childTitle := fmt.Sprintf("Child Work Item #%d", childID)
+						childType := "Task"
+						childWI, err := client.GetWorkItem(childID)
+						if err == nil && childWI != nil {
+							childTitle = getStringField(childWI, "System.Title")
+							childWorkItemType := getStringField(childWI, "System.WorkItemType")
+							if childWorkItemType != "" {
+								childType = childWorkItemType
+							}
+						}
+
+						// Create child entry with actual title and type
 						child := templates.ChildWorkItem{
-							Title: fmt.Sprintf("Child Work Item #%d", childID),
-							Type:  "Task",
+							Title: childTitle,
+							Type:  childType,
 							Fields: map[string]interface{}{
 								"System.Id": childID,
 							},
@@ -855,7 +868,7 @@ func prepareEditWorkItem(client *api.Client, wi workitemtracking.WorkItem) tea.C
 		}
 
 		// Convert to template format for editing
-		template := convertWorkItemToTemplate(fullWI)
+		template := convertWorkItemToTemplate(client, fullWI)
 
 		// Serialize to YAML
 		yamlData, err := yaml.Marshal(template)
