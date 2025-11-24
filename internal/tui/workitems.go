@@ -705,13 +705,15 @@ func convertWorkItemToTemplate(client *api.Client, wi *workitemtracking.WorkItem
 						childTitle := fmt.Sprintf("Child Work Item #%d", childID)
 						childType := "Task"
 						childDescription := ""
-						childWI, err := client.GetWorkItem(childID)
-						if err == nil && childWI != nil {
-							childTitle = getStringField(childWI, "System.Title")
-							childDescription = getStringField(childWI, "System.Description")
-							childWorkItemType := getStringField(childWI, "System.WorkItemType")
-							if childWorkItemType != "" {
-								childType = childWorkItemType
+						if client != nil {
+							childWI, err := client.GetWorkItem(childID)
+							if err == nil && childWI != nil {
+								childTitle = getStringField(childWI, "System.Title")
+								childDescription = getStringField(childWI, "System.Description")
+								childWorkItemType := getStringField(childWI, "System.WorkItemType")
+								if childWorkItemType != "" {
+									childType = childWorkItemType
+								}
 							}
 						}
 
