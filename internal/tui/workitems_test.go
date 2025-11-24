@@ -146,6 +146,70 @@ func TestGetStringField(t *testing.T) {
 	}
 }
 
+func TestGetEmailField(t *testing.T) {
+	tests := []struct {
+		name      string
+		workItem  *workitemtracking.WorkItem
+		fieldName string
+		expected  string
+	}{
+		{
+			name: "identity field with both displayName and uniqueName - prefers uniqueName",
+			workItem: &workitemtracking.WorkItem{
+				Fields: &map[string]interface{}{
+					"System.AssignedTo": map[string]interface{}{
+						"displayName": "John Doe",
+						"uniqueName":  "john.doe@example.com",
+					},
+				},
+			},
+			fieldName: "System.AssignedTo",
+			expected:  "john.doe@example.com", // Prefer email over name
+		},
+		{
+			name: "identity field with only displayName",
+			workItem: &workitemtracking.WorkItem{
+				Fields: &map[string]interface{}{
+					"System.AssignedTo": map[string]interface{}{
+						"displayName": "Jane Smith",
+					},
+				},
+			},
+			fieldName: "System.AssignedTo",
+			expected:  "Jane Smith", // Fall back to display name
+		},
+		{
+			name: "identity field with only uniqueName",
+			workItem: &workitemtracking.WorkItem{
+				Fields: &map[string]interface{}{
+					"System.AssignedTo": map[string]interface{}{
+						"uniqueName": "user@example.com",
+					},
+				},
+			},
+			fieldName: "System.AssignedTo",
+			expected:  "user@example.com",
+		},
+		{
+			name: "non-existent field",
+			workItem: &workitemtracking.WorkItem{
+				Fields: &map[string]interface{}{},
+			},
+			fieldName: "System.AssignedTo",
+			expected:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getEmailField(tt.workItem, tt.fieldName)
+			if result != tt.expected {
+				t.Errorf("getEmailField() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
+
 func TestGetIntField(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -270,10 +334,13 @@ func TestConvertWorkItemToTemplate_Fields(t *testing.T) {
 	workItem := &workitemtracking.WorkItem{
 		Id: &workItemID,
 		Fields: &map[string]interface{}{
-			"System.Title":                             "Test User Story",
-			"System.Description":                       "This is a test description",
-			"System.State":                             "Active",
-			"System.AssignedTo":                        "John Doe",
+			"System.Title":       "Test User Story",
+			"System.Description": "This is a test description",
+			"System.State":       "Active",
+			"System.AssignedTo": map[string]interface{}{
+				"displayName": "John Doe",
+				"uniqueName":  "john.doe@example.com",
+			},
 			"System.Tags":                              "tag1;tag2",
 			"Microsoft.VSTS.Common.Priority":           2,
 			"Microsoft.VSTS.Common.AcceptanceCriteria": "Acceptance criteria here",
@@ -301,7 +368,7 @@ func TestConvertWorkItemToTemplate_Fields(t *testing.T) {
 		"System.Title":                             "Test User Story",
 		"System.Description":                       "This is a test description",
 		"System.State":                             "Active", // Issue #30: Must include State
-		"System.AssignedTo":                        "John Doe",
+		"System.AssignedTo":                        "john.doe@example.com", // Email preferred over display name
 		"System.Tags":                              "tag1;tag2",
 		"Microsoft.VSTS.Common.Priority":           2,
 		"Microsoft.VSTS.Common.AcceptanceCriteria": "Acceptance criteria here",

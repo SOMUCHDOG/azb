@@ -471,6 +471,31 @@ func getStringField(wi *workitemtracking.WorkItem, fieldName string) string {
 	return ""
 }
 
+// getEmailField extracts the email (uniqueName) from identity fields, falling back to displayName
+// This is used for templates where email is preferred for uniqueness
+func getEmailField(wi *workitemtracking.WorkItem, fieldName string) string {
+	if wi.Fields == nil {
+		return ""
+	}
+	if value, ok := (*wi.Fields)[fieldName]; ok {
+		// Handle identity fields - prefer uniqueName (email) over displayName
+		if fieldName == "System.AssignedTo" || fieldName == "System.CreatedBy" || fieldName == "System.ChangedBy" {
+			if identityMap, ok := value.(map[string]interface{}); ok {
+				// Prefer uniqueName (email) for templates
+				if uniqueName, ok := identityMap["uniqueName"].(string); ok {
+					return uniqueName
+				}
+				// Fall back to displayName if uniqueName not available
+				if displayName, ok := identityMap["displayName"].(string); ok {
+					return displayName
+				}
+			}
+		}
+		return fmt.Sprintf("%v", value)
+	}
+	return ""
+}
+
 func getIntField(wi *workitemtracking.WorkItem, fieldName string) int {
 	if wi.Id != nil {
 		return *wi.Id
@@ -659,7 +684,6 @@ func convertWorkItemToTemplate(client *api.Client, wi *workitemtracking.WorkItem
 		"System.Title",
 		"System.Description",
 		"System.State",
-		"System.AssignedTo",
 		"System.Tags",
 		"Microsoft.VSTS.Common.Priority",
 		"Microsoft.VSTS.Common.AcceptanceCriteria",
@@ -673,6 +697,12 @@ func convertWorkItemToTemplate(client *api.Client, wi *workitemtracking.WorkItem
 			if value, ok := (*wi.Fields)[fieldName]; ok {
 				template.Fields[fieldName] = value
 			}
+		}
+
+		// Handle System.AssignedTo specially - extract email for uniqueness
+		assignedTo := getEmailField(wi, "System.AssignedTo")
+		if assignedTo != "" {
+			template.Fields["System.AssignedTo"] = assignedTo
 		}
 	}
 
@@ -712,7 +742,7 @@ func convertWorkItemToTemplate(client *api.Client, wi *workitemtracking.WorkItem
 							if err == nil && childWI != nil {
 								childTitle = getStringField(childWI, "System.Title")
 								childDescription = getStringField(childWI, "System.Description")
-								childAssignedTo = getStringField(childWI, "System.AssignedTo")
+								childAssignedTo = getEmailField(childWI, "System.AssignedTo")
 								childWorkItemType := getStringField(childWI, "System.WorkItemType")
 								if childWorkItemType != "" {
 									childType = childWorkItemType
@@ -1017,8 +1047,9 @@ func executeCreateWorkItemFromTemplate(client *api.Client, template *templates.T
 
 		// Create child work items if specified
 		childCount := 0
+		var childErrors []string
 		if template.Relations != nil && len(template.Relations.Children) > 0 {
-			for _, child := range template.Relations.Children {
+			for i, child := range template.Relations.Children {
 				childFields := make(map[string]interface{})
 				childFields["System.Title"] = child.Title
 				if child.Description != "" {
@@ -1042,7 +1073,9 @@ func executeCreateWorkItemFromTemplate(client *api.Client, template *templates.T
 				// Create child work item with parent relationship
 				_, err := client.CreateWorkItem(childType, childFields, workItemID)
 				if err != nil {
-					logger.Printf("Failed to create child work item: %v", err)
+					errMsg := fmt.Sprintf("Child #%d (%s): %v", i+1, child.Title, err)
+					logger.Printf("Failed to create child work item: %s", errMsg)
+					childErrors = append(childErrors, errMsg)
 					// Continue creating other children even if one fails
 					continue
 				}
@@ -1051,9 +1084,20 @@ func executeCreateWorkItemFromTemplate(client *api.Client, template *templates.T
 			logger.Printf("Created %d child work items", childCount)
 		}
 
+		// Build notification message
+		message := fmt.Sprintf("Created work item #%d", workItemID)
+		if childCount > 0 {
+			message += fmt.Sprintf(" with %d child task(s)", childCount)
+		}
+		if len(childErrors) > 0 {
+			message += fmt.Sprintf("\n\nWarning: %d child task(s) failed to create:\n- %s",
+				len(childErrors), strings.Join(childErrors, "\n- "))
+		}
+
 		return WorkItemCreatedMsg{
 			WorkItem: workItem,
 			Error:    nil,
+			Message:  message,
 		}
 	}
 }

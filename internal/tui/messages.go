@@ -44,6 +44,7 @@ type QueryExecutedMsg struct {
 type WorkItemCreatedMsg struct {
 	WorkItem *workitemtracking.WorkItem
 	Error    error
+	Message  string // Optional message with details (e.g., child creation errors)
 }
 
 // WorkItemUpdatedMsg is sent when a work item is updated
