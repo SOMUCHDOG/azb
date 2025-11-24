@@ -659,6 +659,7 @@ func convertWorkItemToTemplate(client *api.Client, wi *workitemtracking.WorkItem
 		"System.Title",
 		"System.Description",
 		"System.State",
+		"System.AssignedTo",
 		"System.Tags",
 		"Microsoft.VSTS.Common.Priority",
 		"Microsoft.VSTS.Common.AcceptanceCriteria",
@@ -701,15 +702,17 @@ func convertWorkItemToTemplate(client *api.Client, wi *workitemtracking.WorkItem
 							template.Relations = &templates.Relations{}
 						}
 
-						// Fetch child work item details to get title, type, and description
+						// Fetch child work item details to get title, type, description, and assignedTo
 						childTitle := fmt.Sprintf("Child Work Item #%d", childID)
 						childType := "Task"
 						childDescription := ""
+						childAssignedTo := ""
 						if client != nil {
 							childWI, err := client.GetWorkItem(childID)
 							if err == nil && childWI != nil {
 								childTitle = getStringField(childWI, "System.Title")
 								childDescription = getStringField(childWI, "System.Description")
+								childAssignedTo = getStringField(childWI, "System.AssignedTo")
 								childWorkItemType := getStringField(childWI, "System.WorkItemType")
 								if childWorkItemType != "" {
 									childType = childWorkItemType
@@ -717,14 +720,12 @@ func convertWorkItemToTemplate(client *api.Client, wi *workitemtracking.WorkItem
 							}
 						}
 
-						// Create child entry with actual title, type, and description
+						// Create child entry with actual title, type, description, and assignedTo
 						child := templates.ChildWorkItem{
 							Title:       childTitle,
 							Type:        childType,
 							Description: childDescription,
-							Fields: map[string]interface{}{
-								"System.Id": childID,
-							},
+							AssignedTo:  childAssignedTo,
 						}
 						template.Relations.Children = append(template.Relations.Children, child)
 					}

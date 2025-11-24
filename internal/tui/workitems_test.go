@@ -273,6 +273,7 @@ func TestConvertWorkItemToTemplate_Fields(t *testing.T) {
 			"System.Title":                             "Test User Story",
 			"System.Description":                       "This is a test description",
 			"System.State":                             "Active",
+			"System.AssignedTo":                        "John Doe",
 			"System.Tags":                              "tag1;tag2",
 			"Microsoft.VSTS.Common.Priority":           2,
 			"Microsoft.VSTS.Common.AcceptanceCriteria": "Acceptance criteria here",
@@ -300,6 +301,7 @@ func TestConvertWorkItemToTemplate_Fields(t *testing.T) {
 		"System.Title":                             "Test User Story",
 		"System.Description":                       "This is a test description",
 		"System.State":                             "Active", // Issue #30: Must include State
+		"System.AssignedTo":                        "John Doe",
 		"System.Tags":                              "tag1;tag2",
 		"Microsoft.VSTS.Common.Priority":           2,
 		"Microsoft.VSTS.Common.AcceptanceCriteria": "Acceptance criteria here",
@@ -383,23 +385,23 @@ func TestConvertWorkItemToTemplate_ChildRelationshipsWithoutClient(t *testing.T)
 		t.Fatalf("Template.Relations.Children length = %d, want %d", len(template.Relations.Children), 2)
 	}
 
-	// Test that child IDs are stored
-	child1 := template.Relations.Children[0]
-	if child1.Fields["System.Id"] != 101 {
-		t.Errorf("Child[0].Fields[System.Id] = %v, want %d", child1.Fields["System.Id"], 101)
-	}
-
-	child2 := template.Relations.Children[1]
-	if child2.Fields["System.Id"] != 102 {
-		t.Errorf("Child[1].Fields[System.Id] = %v, want %d", child2.Fields["System.Id"], 102)
-	}
-
 	// Without client, should have fallback titles
+	child1 := template.Relations.Children[0]
 	if child1.Title == "" {
 		t.Error("Child[0].Title is empty, expected fallback title")
 	}
+
+	child2 := template.Relations.Children[1]
 	if child2.Title == "" {
 		t.Error("Child[1].Title is empty, expected fallback title")
+	}
+
+	// Child fields should not include System.Id (no longer stored in template)
+	if child1.Fields != nil && child1.Fields["System.Id"] != nil {
+		t.Error("Child[0].Fields[System.Id] should not be set")
+	}
+	if child2.Fields != nil && child2.Fields["System.Id"] != nil {
+		t.Error("Child[1].Fields[System.Id] should not be set")
 	}
 }
 
