@@ -701,22 +701,25 @@ func convertWorkItemToTemplate(client *api.Client, wi *workitemtracking.WorkItem
 							template.Relations = &templates.Relations{}
 						}
 
-						// Fetch child work item details to get title and type
+						// Fetch child work item details to get title, type, and description
 						childTitle := fmt.Sprintf("Child Work Item #%d", childID)
 						childType := "Task"
+						childDescription := ""
 						childWI, err := client.GetWorkItem(childID)
 						if err == nil && childWI != nil {
 							childTitle = getStringField(childWI, "System.Title")
+							childDescription = getStringField(childWI, "System.Description")
 							childWorkItemType := getStringField(childWI, "System.WorkItemType")
 							if childWorkItemType != "" {
 								childType = childWorkItemType
 							}
 						}
 
-						// Create child entry with actual title and type
+						// Create child entry with actual title, type, and description
 						child := templates.ChildWorkItem{
-							Title: childTitle,
-							Type:  childType,
+							Title:       childTitle,
+							Type:        childType,
+							Description: childDescription,
 							Fields: map[string]interface{}{
 								"System.Id": childID,
 							},
