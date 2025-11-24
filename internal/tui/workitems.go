@@ -376,11 +376,35 @@ func (t *WorkItemsTab) formatWorkItemDetails(wi workitemtracking.WorkItem) strin
 			relType := *rel.Rel
 			relID := extractWorkItemIDFromURL(*rel.Url)
 
+			// Fetch work item title if we have an ID
+			var relTitle string
+			if relID > 0 {
+				// Check cache first
+				if cachedWI, ok := t.workItemCache[relID]; ok {
+					relTitle = getStringField(cachedWI, "System.Title")
+				} else {
+					// Fetch from API
+					relWI, err := t.client.GetWorkItem(relID)
+					if err == nil && relWI != nil {
+						relTitle = getStringField(relWI, "System.Title")
+						t.workItemCache[relID] = relWI
+					}
+				}
+			}
+
 			switch relType {
 			case "System.LinkTypes.Hierarchy-Reverse":
-				parents = append(parents, fmt.Sprintf("  Parent: #%d", relID))
+				if relTitle != "" {
+					parents = append(parents, fmt.Sprintf("  Parent: #%d - %s", relID, relTitle))
+				} else {
+					parents = append(parents, fmt.Sprintf("  Parent: #%d", relID))
+				}
 			case "System.LinkTypes.Hierarchy-Forward":
-				children = append(children, fmt.Sprintf("  Child: #%d", relID))
+				if relTitle != "" {
+					children = append(children, fmt.Sprintf("  Child: #%d - %s", relID, relTitle))
+				} else {
+					children = append(children, fmt.Sprintf("  Child: #%d", relID))
+				}
 			default:
 				// Other relationship types (PRs, related work items, etc.)
 				relTypeName := relType
@@ -388,7 +412,11 @@ func (t *WorkItemsTab) formatWorkItemDetails(wi workitemtracking.WorkItem) strin
 					relTypeName = relType[idx+1:]
 				}
 				if relID > 0 {
-					others = append(others, fmt.Sprintf("  %s: #%d", relTypeName, relID))
+					if relTitle != "" {
+						others = append(others, fmt.Sprintf("  %s: #%d - %s", relTypeName, relID, relTitle))
+					} else {
+						others = append(others, fmt.Sprintf("  %s: #%d", relTypeName, relID))
+					}
 				} else {
 					others = append(others, fmt.Sprintf("  %s: %s", relTypeName, *rel.Url))
 				}
