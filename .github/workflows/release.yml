@@ -1,7 +1,8 @@
 name: Release
 
 on:
-  push:
+  pull_request:
+    types: [closed]
     branches:
       - main
 
@@ -14,6 +15,8 @@ jobs:
   semantic-release:
     name: Semantic Release
     runs-on: ubuntu-latest
+    # Only run on merged PRs, not just closed ones
+    if: github.event.pull_request.merged == true
     outputs:
       new_release_published: ${{ steps.semantic.outputs.new_release_published }}
       new_release_version: ${{ steps.semantic.outputs.new_release_version }}
@@ -23,6 +26,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
           token: ${{ secrets.SEMANTIC_RELEASE_TOKEN }}
+          ref: main  # Checkout main branch after PR merge
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
