@@ -359,9 +359,53 @@ func (t *WorkItemsTab) formatWorkItemDetails(wi workitemtracking.WorkItem) strin
 		details += acceptanceCriteria + "\n\n"
 	}
 
-	// Relationships (simplified for now)
+	// Relationships - display detailed relationship information
 	if wi.Relations != nil && len(*wi.Relations) > 0 {
-		details += fmt.Sprintf("Relations: %d\n\n", len(*wi.Relations))
+		details += fmt.Sprintf("Relations (%d):\n", len(*wi.Relations))
+
+		// Group relationships by type
+		var parents []string
+		var children []string
+		var others []string
+
+		for _, rel := range *wi.Relations {
+			if rel.Rel == nil || rel.Url == nil {
+				continue
+			}
+
+			relType := *rel.Rel
+			relID := extractWorkItemIDFromURL(*rel.Url)
+
+			switch relType {
+			case "System.LinkTypes.Hierarchy-Reverse":
+				parents = append(parents, fmt.Sprintf("  Parent: #%d", relID))
+			case "System.LinkTypes.Hierarchy-Forward":
+				children = append(children, fmt.Sprintf("  Child: #%d", relID))
+			default:
+				// Other relationship types (PRs, related work items, etc.)
+				relTypeName := relType
+				if idx := strings.LastIndex(relType, "-"); idx > 0 {
+					relTypeName = relType[idx+1:]
+				}
+				if relID > 0 {
+					others = append(others, fmt.Sprintf("  %s: #%d", relTypeName, relID))
+				} else {
+					others = append(others, fmt.Sprintf("  %s: %s", relTypeName, *rel.Url))
+				}
+			}
+		}
+
+		// Display grouped relationships
+		for _, p := range parents {
+			details += p + "\n"
+		}
+		for _, c := range children {
+			details += c + "\n"
+		}
+		for _, o := range others {
+			details += o + "\n"
+		}
+		details += "\n"
 	}
 
 	if assignedTo != "" {
@@ -586,11 +630,13 @@ func convertWorkItemToTemplate(wi *workitemtracking.WorkItem) *templates.Templat
 	relevantFields := []string{
 		"System.Title",
 		"System.Description",
+		"System.State",
 		"System.Tags",
 		"Microsoft.VSTS.Common.Priority",
 		"Microsoft.VSTS.Common.AcceptanceCriteria",
 		"System.AreaPath",
 		"System.IterationPath",
+		"Custom.ApplicationName",
 	}
 
 	if wi.Fields != nil {
@@ -601,19 +647,42 @@ func convertWorkItemToTemplate(wi *workitemtracking.WorkItem) *templates.Templat
 		}
 	}
 
-	// Handle relationships (children)
+	// Handle relationships (children and parent)
 	if wi.Relations != nil {
 		for _, rel := range *wi.Relations {
-			if rel.Rel != nil && *rel.Rel == "System.LinkTypes.Hierarchy-Forward" {
-				// This is a child work item - add placeholder
-				if template.Relations == nil {
-					template.Relations = &templates.Relations{}
+			if rel.Rel != nil && rel.Url != nil {
+				relType := *rel.Rel
+
+				// Check for parent relationship
+				if relType == "System.LinkTypes.Hierarchy-Reverse" {
+					parentID := extractWorkItemIDFromURL(*rel.Url)
+					if parentID > 0 {
+						if template.Relations == nil {
+							template.Relations = &templates.Relations{}
+						}
+						template.Relations.ParentID = parentID
+					}
 				}
-				child := templates.ChildWorkItem{
-					Title: "Child Task (from relationship)",
-					Type:  "Task",
+
+				// Check for child relationship
+				if relType == "System.LinkTypes.Hierarchy-Forward" {
+					// Extract child work item ID from relationship URL
+					childID := extractWorkItemIDFromURL(*rel.Url)
+					if childID > 0 {
+						if template.Relations == nil {
+							template.Relations = &templates.Relations{}
+						}
+						// Create child entry with ID as reference
+						child := templates.ChildWorkItem{
+							Title: fmt.Sprintf("Child Work Item #%d", childID),
+							Type:  "Task",
+							Fields: map[string]interface{}{
+								"System.Id": childID,
+							},
+						}
+						template.Relations.Children = append(template.Relations.Children, child)
+					}
 				}
-				template.Relations.Children = append(template.Relations.Children, child)
 			}
 		}
 	}
