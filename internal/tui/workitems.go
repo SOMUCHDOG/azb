@@ -1059,9 +1059,11 @@ func executeCreateWorkItemFromTemplate(client *api.Client, template *templates.T
 					childFields["System.AssignedTo"] = child.AssignedTo
 				}
 
-				// Add any custom fields from child
+				// Add any custom fields from child (except System.State which is read-only during creation)
 				for fieldName, value := range child.Fields {
-					childFields[fieldName] = value
+					if fieldName != "System.State" {
+						childFields[fieldName] = value
+					}
 				}
 
 				// Inherit fields from parent template if not specified in child
