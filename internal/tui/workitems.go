@@ -1064,6 +1064,39 @@ func executeCreateWorkItemFromTemplate(client *api.Client, template *templates.T
 					childFields[fieldName] = value
 				}
 
+				// Inherit fields from parent template if not specified in child
+				if template.Fields != nil {
+					// Inherit Custom.ApplicationName
+					if parentAppName, hasParentAppName := template.Fields["Custom.ApplicationName"]; hasParentAppName {
+						if _, hasChildAppName := childFields["Custom.ApplicationName"]; !hasChildAppName {
+							childFields["Custom.ApplicationName"] = parentAppName
+						}
+					}
+
+					// Inherit AreaPath if not in child
+					if parentAreaPath, hasAreaPath := template.Fields["System.AreaPath"]; hasAreaPath {
+						if _, hasChildAreaPath := childFields["System.AreaPath"]; !hasChildAreaPath {
+							childFields["System.AreaPath"] = parentAreaPath
+						}
+					}
+
+					// Inherit IterationPath if not in child
+					if parentIteration, hasIteration := template.Fields["System.IterationPath"]; hasIteration {
+						if _, hasChildIteration := childFields["System.IterationPath"]; !hasChildIteration {
+							childFields["System.IterationPath"] = parentIteration
+						}
+					}
+
+					// Inherit any other custom fields not already set
+					for fieldName, value := range template.Fields {
+						if strings.HasPrefix(fieldName, "Custom.") {
+							if _, hasChildField := childFields[fieldName]; !hasChildField {
+								childFields[fieldName] = value
+							}
+						}
+					}
+				}
+
 				// Determine child type
 				childType := child.Type
 				if childType == "" {
