@@ -359,9 +359,81 @@ func (t *WorkItemsTab) formatWorkItemDetails(wi workitemtracking.WorkItem) strin
 		details += acceptanceCriteria + "\n\n"
 	}
 
-	// Relationships (simplified for now)
+	// Relationships - display detailed relationship information
 	if wi.Relations != nil && len(*wi.Relations) > 0 {
-		details += fmt.Sprintf("Relations: %d\n\n", len(*wi.Relations))
+		details += fmt.Sprintf("Relations (%d):\n", len(*wi.Relations))
+
+		// Group relationships by type
+		var parents []string
+		var children []string
+		var others []string
+
+		for _, rel := range *wi.Relations {
+			if rel.Rel == nil || rel.Url == nil {
+				continue
+			}
+
+			relType := *rel.Rel
+			relID := extractWorkItemIDFromURL(*rel.Url)
+
+			// Fetch work item title if we have an ID
+			var relTitle string
+			if relID > 0 {
+				// Check cache first
+				if cachedWI, ok := t.workItemCache[relID]; ok {
+					relTitle = getStringField(cachedWI, "System.Title")
+				} else {
+					// Fetch from API
+					relWI, err := t.client.GetWorkItem(relID)
+					if err == nil && relWI != nil {
+						relTitle = getStringField(relWI, "System.Title")
+						t.workItemCache[relID] = relWI
+					}
+				}
+			}
+
+			switch relType {
+			case "System.LinkTypes.Hierarchy-Reverse":
+				if relTitle != "" {
+					parents = append(parents, fmt.Sprintf("  Parent: #%d - %s", relID, relTitle))
+				} else {
+					parents = append(parents, fmt.Sprintf("  Parent: #%d", relID))
+				}
+			case "System.LinkTypes.Hierarchy-Forward":
+				if relTitle != "" {
+					children = append(children, fmt.Sprintf("  Child: #%d - %s", relID, relTitle))
+				} else {
+					children = append(children, fmt.Sprintf("  Child: #%d", relID))
+				}
+			default:
+				// Other relationship types (PRs, related work items, etc.)
+				relTypeName := relType
+				if idx := strings.LastIndex(relType, "-"); idx > 0 {
+					relTypeName = relType[idx+1:]
+				}
+				if relID > 0 {
+					if relTitle != "" {
+						others = append(others, fmt.Sprintf("  %s: #%d - %s", relTypeName, relID, relTitle))
+					} else {
+						others = append(others, fmt.Sprintf("  %s: #%d", relTypeName, relID))
+					}
+				} else {
+					others = append(others, fmt.Sprintf("  %s: %s", relTypeName, *rel.Url))
+				}
+			}
+		}
+
+		// Display grouped relationships
+		for _, p := range parents {
+			details += p + "\n"
+		}
+		for _, c := range children {
+			details += c + "\n"
+		}
+		for _, o := range others {
+			details += o + "\n"
+		}
+		details += "\n"
 	}
 
 	if assignedTo != "" {
@@ -391,6 +463,31 @@ func getStringField(wi *workitemtracking.WorkItem, fieldName string) string {
 				}
 				if uniqueName, ok := identityMap["uniqueName"].(string); ok {
 					return uniqueName
+				}
+			}
+		}
+		return fmt.Sprintf("%v", value)
+	}
+	return ""
+}
+
+// getEmailField extracts the email (uniqueName) from identity fields, falling back to displayName
+// This is used for templates where email is preferred for uniqueness
+func getEmailField(wi *workitemtracking.WorkItem, fieldName string) string {
+	if wi.Fields == nil {
+		return ""
+	}
+	if value, ok := (*wi.Fields)[fieldName]; ok {
+		// Handle identity fields - prefer uniqueName (email) over displayName
+		if fieldName == "System.AssignedTo" || fieldName == "System.CreatedBy" || fieldName == "System.ChangedBy" {
+			if identityMap, ok := value.(map[string]interface{}); ok {
+				// Prefer uniqueName (email) for templates
+				if uniqueName, ok := identityMap["uniqueName"].(string); ok {
+					return uniqueName
+				}
+				// Fall back to displayName if uniqueName not available
+				if displayName, ok := identityMap["displayName"].(string); ok {
+					return displayName
 				}
 			}
 		}
@@ -535,7 +632,7 @@ func downloadWorkItem(client *api.Client, wi workitemtracking.WorkItem) tea.Cmd 
 		}
 
 		// Convert to template format
-		template := convertWorkItemToTemplate(fullWI)
+		template := convertWorkItemToTemplate(client, fullWI)
 
 		// Serialize to YAML
 		yamlData, err := yaml.Marshal(template)
@@ -574,7 +671,7 @@ func downloadWorkItem(client *api.Client, wi workitemtracking.WorkItem) tea.Cmd 
 }
 
 // convertWorkItemToTemplate converts a work item to a template
-func convertWorkItemToTemplate(wi *workitemtracking.WorkItem) *templates.Template {
+func convertWorkItemToTemplate(client *api.Client, wi *workitemtracking.WorkItem) *templates.Template {
 	template := &templates.Template{
 		Name:        getStringField(wi, "System.Title"),
 		Type:        getStringField(wi, "System.WorkItemType"),
@@ -586,11 +683,13 @@ func convertWorkItemToTemplate(wi *workitemtracking.WorkItem) *templates.Templat
 	relevantFields := []string{
 		"System.Title",
 		"System.Description",
+		"System.State",
 		"System.Tags",
 		"Microsoft.VSTS.Common.Priority",
 		"Microsoft.VSTS.Common.AcceptanceCriteria",
 		"System.AreaPath",
 		"System.IterationPath",
+		"Custom.ApplicationName",
 	}
 
 	if wi.Fields != nil {
@@ -599,21 +698,68 @@ func convertWorkItemToTemplate(wi *workitemtracking.WorkItem) *templates.Templat
 				template.Fields[fieldName] = value
 			}
 		}
+
+		// Handle System.AssignedTo specially - extract email for uniqueness
+		assignedTo := getEmailField(wi, "System.AssignedTo")
+		if assignedTo != "" {
+			template.Fields["System.AssignedTo"] = assignedTo
+		}
 	}
 
-	// Handle relationships (children)
+	// Handle relationships (children and parent)
 	if wi.Relations != nil {
 		for _, rel := range *wi.Relations {
-			if rel.Rel != nil && *rel.Rel == "System.LinkTypes.Hierarchy-Forward" {
-				// This is a child work item - add placeholder
-				if template.Relations == nil {
-					template.Relations = &templates.Relations{}
+			if rel.Rel != nil && rel.Url != nil {
+				relType := *rel.Rel
+
+				// Check for parent relationship
+				if relType == "System.LinkTypes.Hierarchy-Reverse" {
+					parentID := extractWorkItemIDFromURL(*rel.Url)
+					if parentID > 0 {
+						if template.Relations == nil {
+							template.Relations = &templates.Relations{}
+						}
+						template.Relations.ParentID = parentID
+					}
 				}
-				child := templates.ChildWorkItem{
-					Title: "Child Task (from relationship)",
-					Type:  "Task",
+
+				// Check for child relationship
+				if relType == "System.LinkTypes.Hierarchy-Forward" {
+					// Extract child work item ID from relationship URL
+					childID := extractWorkItemIDFromURL(*rel.Url)
+					if childID > 0 {
+						if template.Relations == nil {
+							template.Relations = &templates.Relations{}
+						}
+
+						// Fetch child work item details to get title, type, description, and assignedTo
+						childTitle := fmt.Sprintf("Child Work Item #%d", childID)
+						childType := "Task"
+						childDescription := ""
+						childAssignedTo := ""
+						if client != nil {
+							childWI, err := client.GetWorkItem(childID)
+							if err == nil && childWI != nil {
+								childTitle = getStringField(childWI, "System.Title")
+								childDescription = getStringField(childWI, "System.Description")
+								childAssignedTo = getEmailField(childWI, "System.AssignedTo")
+								childWorkItemType := getStringField(childWI, "System.WorkItemType")
+								if childWorkItemType != "" {
+									childType = childWorkItemType
+								}
+							}
+						}
+
+						// Create child entry with actual title, type, description, and assignedTo
+						child := templates.ChildWorkItem{
+							Title:       childTitle,
+							Type:        childType,
+							Description: childDescription,
+							AssignedTo:  childAssignedTo,
+						}
+						template.Relations.Children = append(template.Relations.Children, child)
+					}
 				}
-				template.Relations.Children = append(template.Relations.Children, child)
 			}
 		}
 	}
@@ -758,7 +904,7 @@ func prepareEditWorkItem(client *api.Client, wi workitemtracking.WorkItem) tea.C
 		}
 
 		// Convert to template format for editing
-		template := convertWorkItemToTemplate(fullWI)
+		template := convertWorkItemToTemplate(client, fullWI)
 
 		// Serialize to YAML
 		yamlData, err := yaml.Marshal(template)
@@ -901,8 +1047,9 @@ func executeCreateWorkItemFromTemplate(client *api.Client, template *templates.T
 
 		// Create child work items if specified
 		childCount := 0
+		var childErrors []string
 		if template.Relations != nil && len(template.Relations.Children) > 0 {
-			for _, child := range template.Relations.Children {
+			for i, child := range template.Relations.Children {
 				childFields := make(map[string]interface{})
 				childFields["System.Title"] = child.Title
 				if child.Description != "" {
@@ -912,9 +1059,44 @@ func executeCreateWorkItemFromTemplate(client *api.Client, template *templates.T
 					childFields["System.AssignedTo"] = child.AssignedTo
 				}
 
-				// Add any custom fields from child
+				// Add any custom fields from child (except System.State which is read-only during creation)
 				for fieldName, value := range child.Fields {
-					childFields[fieldName] = value
+					if fieldName != "System.State" {
+						childFields[fieldName] = value
+					}
+				}
+
+				// Inherit fields from parent template if not specified in child
+				if template.Fields != nil {
+					// Inherit Custom.ApplicationName
+					if parentAppName, hasParentAppName := template.Fields["Custom.ApplicationName"]; hasParentAppName {
+						if _, hasChildAppName := childFields["Custom.ApplicationName"]; !hasChildAppName {
+							childFields["Custom.ApplicationName"] = parentAppName
+						}
+					}
+
+					// Inherit AreaPath if not in child
+					if parentAreaPath, hasAreaPath := template.Fields["System.AreaPath"]; hasAreaPath {
+						if _, hasChildAreaPath := childFields["System.AreaPath"]; !hasChildAreaPath {
+							childFields["System.AreaPath"] = parentAreaPath
+						}
+					}
+
+					// Inherit IterationPath if not in child
+					if parentIteration, hasIteration := template.Fields["System.IterationPath"]; hasIteration {
+						if _, hasChildIteration := childFields["System.IterationPath"]; !hasChildIteration {
+							childFields["System.IterationPath"] = parentIteration
+						}
+					}
+
+					// Inherit any other custom fields not already set
+					for fieldName, value := range template.Fields {
+						if strings.HasPrefix(fieldName, "Custom.") {
+							if _, hasChildField := childFields[fieldName]; !hasChildField {
+								childFields[fieldName] = value
+							}
+						}
+					}
 				}
 
 				// Determine child type
@@ -926,7 +1108,9 @@ func executeCreateWorkItemFromTemplate(client *api.Client, template *templates.T
 				// Create child work item with parent relationship
 				_, err := client.CreateWorkItem(childType, childFields, workItemID)
 				if err != nil {
-					logger.Printf("Failed to create child work item: %v", err)
+					errMsg := fmt.Sprintf("Child #%d (%s): %v", i+1, child.Title, err)
+					logger.Printf("Failed to create child work item: %s", errMsg)
+					childErrors = append(childErrors, errMsg)
 					// Continue creating other children even if one fails
 					continue
 				}
@@ -935,9 +1119,20 @@ func executeCreateWorkItemFromTemplate(client *api.Client, template *templates.T
 			logger.Printf("Created %d child work items", childCount)
 		}
 
+		// Build notification message
+		message := fmt.Sprintf("Created work item #%d", workItemID)
+		if childCount > 0 {
+			message += fmt.Sprintf(" with %d child task(s)", childCount)
+		}
+		if len(childErrors) > 0 {
+			message += fmt.Sprintf("\n\nWarning: %d child task(s) failed to create:\n- %s",
+				len(childErrors), strings.Join(childErrors, "\n- "))
+		}
+
 		return WorkItemCreatedMsg{
 			WorkItem: workItem,
 			Error:    nil,
+			Message:  message,
 		}
 	}
 }

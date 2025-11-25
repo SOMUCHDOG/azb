@@ -432,7 +432,11 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if createdMsg, ok := msg.(WorkItemCreatedMsg); ok {
 			if createdMsg.Error == nil && createdMsg.WorkItem != nil {
 				workItemID := *createdMsg.WorkItem.Id
-				message := fmt.Sprintf("Created work item #%d", workItemID)
+				// Use custom message if provided, otherwise use default
+				message := createdMsg.Message
+				if message == "" {
+					message = fmt.Sprintf("Created work item #%d", workItemID)
+				}
 
 				// Switch to Work Items tab (index 1)
 				d.currentTab = 1

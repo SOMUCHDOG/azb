@@ -134,6 +134,8 @@ func runCreate(cmd *cobra.Command, args []string) error {
 				if p, ok := fieldValue.(int); ok {
 					priority = p
 				}
+			case "System.State":
+				// Skip State field - it's read-only during creation and set automatically by Azure DevOps
 			default:
 				customFields[fieldName] = fmt.Sprintf("%v", fieldValue)
 			}
