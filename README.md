@@ -2,8 +2,6 @@
 
 [![CI](https://github.com/SOMUCHDOG/ado-admin/actions/workflows/test.yml/badge.svg)](https://github.com/SOMUCHDOG/ado-admin/actions/workflows/test.yml)
 [![Release](https://github.com/SOMUCHDOG/ado-admin/actions/workflows/release.yml/badge.svg)](https://github.com/SOMUCHDOG/ado-admin/actions/workflows/release.yml)
-[![Latest Release](https://img.shields.io/github/v/release/SOMUCHDOG/ado-admin)](https://github.com/SOMUCHDOG/ado-admin/releases/latest)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/SOMUCHDOG/ado-admin)](go.mod)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platform Support](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)](#installation)
 
