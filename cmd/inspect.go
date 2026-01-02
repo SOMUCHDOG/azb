@@ -6,9 +6,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/casey/azure-boards-cli/internal/api"
-	"github.com/casey/azure-boards-cli/internal/auth"
-	"github.com/casey/azure-boards-cli/internal/config"
+	"github.com/SOMUCHDOG/azb/internal/api"
+	"github.com/SOMUCHDOG/azb/internal/auth"
+	"github.com/SOMUCHDOG/azb/internal/config"
 )
 
 var (

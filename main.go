@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/casey/azure-boards-cli/cmd"
+	"github.com/SOMUCHDOG/azb/cmd"
 )
 
 // Build-time variables injected by ldflags

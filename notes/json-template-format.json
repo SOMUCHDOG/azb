@@ -1,40 +1,41 @@
 {
   "type": "User Story",
-  "title": "VET Code Repository Migrations",
-  "description": "Import and Standardize the project",
-  "assignedTo": "Casey Kawamura",
-  "tags": "ITS",
+  "title": "Example Work Item Title",
+  "description": "Description of the work to be done",
+  "assignedTo": "user@example.com",
+  "tags": "example-tag",
   "state": "New",
   "column": "Assigned Work",
   "priority": 1,
-  "areaPath": "ITS-Application-Development\\Process Improvement",
-  "iterationPath": "ITS-Application-Development",
+  "areaPath": "MyProject\\MyTeam",
+  "iterationPath": "MyProject\\Sprint1",
   "acceptanceCriteria": [
-    "Repositories are available in ITS-Application-Development"
+    "First acceptance criteria",
+    "Second acceptance criteria"
   ],
   "customFields": {
-    "Custom.ApplicationName": "DevOps",
+    "Custom.ApplicationName": "MyApplication",
     "Custom.Change#": "CHG",
     "Microsoft.VSTS.Common.Activity": "Development",
     "Microsoft.VSTS.Scheduling.StoryPoints": 0
   },
   "relations": {
-    "parentId": 40333,
+    "parentId": 12345,
     "children": [
         {
-            "title": "Check for archived projects",
-            "description": "Work with the Agency SMEs to correctly archive decommissioned applications",
-            "assignedTo": "Casey Kawamura"
+            "title": "First child task",
+            "description": "Description of first child task",
+            "assignedTo": "user@example.com"
         },
         {
-            "title": "Run the migration script",
-            "description": "Run the migration script to move the repositories",
-            "assignedTo": "Casey Kawamura"
+            "title": "Second child task",
+            "description": "Description of second child task",
+            "assignedTo": "user@example.com"
         },
         {
-            "title": "Validate with project SMEs",
-            "description": "Validate the projects were imported correctly",
-            "assignedTo": "Casey Kawamura"
+            "title": "Third child task",
+            "description": "Description of third child task",
+            "assignedTo": "user@example.com"
         }
     ]
   }

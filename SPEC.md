@@ -126,7 +126,7 @@ Launch with: `azb dashboard` or `azb`
 │ Users unable to login when using SSO. Error occurs in the     │
 │ authentication middleware after recent deployment.            │
 │                                                                │
-│ Assigned to: Casey Smith                                      │
+│ Assigned to: Jane Smith                                      │
 │ Created: 2025-11-10 | Updated: 2025-11-15                     │
 └───────────────────────────────────────────────────────────────┘
 ```

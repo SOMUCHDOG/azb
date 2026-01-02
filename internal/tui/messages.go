@@ -3,8 +3,8 @@ package tui
 import (
 	"github.com/microsoft/azure-devops-go-api/azuredevops/workitemtracking"
 
-	"github.com/casey/azure-boards-cli/internal/api"
-	"github.com/casey/azure-boards-cli/internal/templates"
+	"github.com/SOMUCHDOG/azb/internal/api"
+	"github.com/SOMUCHDOG/azb/internal/templates"
 )
 
 // NotificationMsg is sent to display a notification

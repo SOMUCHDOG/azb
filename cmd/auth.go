@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/casey/azure-boards-cli/internal/auth"
+	"github.com/SOMUCHDOG/azb/internal/auth"
 )
 
 var (

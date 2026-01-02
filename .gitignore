@@ -17,6 +17,10 @@ go.work
 # Built binary
 ab
 azure-boards-cli
+azb
+
+# Binary directory
+bin/
 
 # IDE
 .idea/

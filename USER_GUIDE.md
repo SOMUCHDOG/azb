@@ -286,7 +286,7 @@ Leave blank to keep current value, enter new value to update
 Title [Fix login bug]:
 Description [Users unable to login]: Updated description
 State [Active]: Resolved
-Assigned To [Casey Kawamura]:
+Assigned To [Jane Smith]:
 Tags [bug,urgent]:
 Priority [1]: 2
 
@@ -426,7 +426,7 @@ relations:
     - title: Child Task 2
       type: Task
       description: Another child task
-      assignedTo: Casey Kawamura
+      assignedTo: Jane Smith
 ```
 
 ### Queries
@@ -474,9 +474,9 @@ from WorkItems where [System.AssignedTo] = @me order by [System.ChangedDate] des
 $ azb query run "Assigned to me" --limit 5
 ID       Title                                              Type            State           Assigned To
 ------------------------------------------------------------------------------------------------------------------------
-73807    Fix login bug                                      Bug             Active          Casey Kawamura
-73504    Add new dashboard feature                          User Story      New             Casey Kawamura
-73667    Update documentation                               Task            Active          Casey Kawamura
+73807    Fix login bug                                      Bug             Active          Jane Smith
+73504    Add new dashboard feature                          User Story      New             Jane Smith
+73667    Update documentation                               Task            Active          Jane Smith
 ```
 
 ### Work Item Types Inspection
@@ -570,7 +570,7 @@ azb
 │ Users unable to login when using SSO. Error occurs in the     │
 │ authentication middleware after recent deployment.            │
 │                                                                │
-│ Assigned to: Casey Smith                                      │
+│ Assigned to: Jane Smith                                      │
 │ Created: 2025-11-10 | Updated: 2025-11-15                     │
 └───────────────────────────────────────────────────────────────┘
 ```

@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/casey/azure-boards-cli/internal/templates"
+	"github.com/SOMUCHDOG/azb/internal/templates"
 )
 
 var (
