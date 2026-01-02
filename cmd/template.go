@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"github.com/casey/azure-boards-cli/internal/templates"
+	"github.com/SOMUCHDOG/azb/internal/templates"
 )
 
 var (

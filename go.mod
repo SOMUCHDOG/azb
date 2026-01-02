@@ -1,4 +1,4 @@
-module github.com/casey/azure-boards-cli
+module github.com/SOMUCHDOG/azb
 
 go 1.24.0
 

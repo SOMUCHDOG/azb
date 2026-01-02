@@ -13,8 +13,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/casey/azure-boards-cli/internal/api"
-	"github.com/casey/azure-boards-cli/internal/templates"
+	"github.com/SOMUCHDOG/azb/internal/api"
+	"github.com/SOMUCHDOG/azb/internal/templates"
 )
 
 // TemplatesTab displays and manages templates

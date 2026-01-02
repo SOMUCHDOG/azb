@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/casey/azure-boards-cli/internal/api"
-	"github.com/casey/azure-boards-cli/internal/templates"
+	"github.com/SOMUCHDOG/azb/internal/api"
+	"github.com/SOMUCHDOG/azb/internal/templates"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"

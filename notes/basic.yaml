@@ -4,13 +4,13 @@ description: Example template
 type: User Story
 fields:
   # Standard fields
-  System.Title: azb create test
-  System.Description: testing automated tools
-  System.AssignedTo: Casey Kawamura
-  System.Tags: ITS
+  System.Title: Example work item title
+  System.Description: Description of the work to be done
+  System.AssignedTo: user@example.com
+  System.Tags: example-tag
   System.State: New
-  System.AreaPath: ITS-Application-Development\Maintenance
-  System.IterationPath: ITS-Application-Development
+  System.AreaPath: MyProject\MyTeam
+  System.IterationPath: MyProject\Sprint1
 
   # Priority and planning
   Microsoft.VSTS.Common.Priority: 1
@@ -20,10 +20,11 @@ fields:
 
   # Acceptance Criteria (use YAML multiline string)
   Microsoft.VSTS.Common.AcceptanceCriteria: |
-    - [ ] Repositories are available in ITS-Application-Development
+    - [ ] First acceptance criteria
+    - [ ] Second acceptance criteria
 
-  # Custom fields
-  Custom.ApplicationName: DevOps
+  # Custom fields (adjust to your organization)
+  Custom.ApplicationName: MyApplication
   Custom.Change#: CHG
 
   # Board settings (if applicable)
@@ -32,14 +33,14 @@ fields:
 # Work item relationships
 relations:
   # Optional: Link this work item to a parent (use actual parent ID)
-  parentId: 40333
+  parentId: 12345
 
   # Optional: Create child work items automatically
   children:
-    - title: do work
+    - title: Child task title
       type: Task  # Optional, defaults to Task
-      description: do work
-      assignedTo: Casey Kawamura
+      description: Description of child task
+      assignedTo: user@example.com
       fields:
         # Add any additional fields specific to this child
         Microsoft.VSTS.Scheduling.RemainingWork: 4

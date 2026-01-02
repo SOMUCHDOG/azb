@@ -1,7 +1,7 @@
 # Azure Boards CLI (azb)
 
-[![CI](https://github.com/SOMUCHDOG/ado-admin/actions/workflows/test.yml/badge.svg)](https://github.com/SOMUCHDOG/ado-admin/actions/workflows/test.yml)
-[![Release](https://github.com/SOMUCHDOG/ado-admin/actions/workflows/release.yml/badge.svg)](https://github.com/SOMUCHDOG/ado-admin/actions/workflows/release.yml)
+[![CI](https://github.com/SOMUCHDOG/azb/actions/workflows/test.yml/badge.svg)](https://github.com/SOMUCHDOG/azb/actions/workflows/test.yml)
+[![Release](https://github.com/SOMUCHDOG/azb/actions/workflows/release.yml/badge.svg)](https://github.com/SOMUCHDOG/azb/actions/workflows/release.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platform Support](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)](#installation)
 
@@ -23,17 +23,17 @@ A cross-platform command-line interface for managing Azure Boards work items.
 
 ### Pre-built Binaries (Recommended)
 
-Download the latest release for your platform from the [Releases page](https://github.com/SOMUCHDOG/ado-admin/releases).
+Download the latest release for your platform from the [Releases page](https://github.com/SOMUCHDOG/azb/releases).
 
 #### macOS
 
 ```bash
 # Intel
-curl -L https://github.com/SOMUCHDOG/ado-admin/releases/latest/download/azb_Darwin_x86_64.tar.gz | tar xz
+curl -L https://github.com/SOMUCHDOG/azb/releases/latest/download/azb_Darwin_x86_64.tar.gz | tar xz
 sudo mv azb /usr/local/bin/
 
 # Apple Silicon
-curl -L https://github.com/SOMUCHDOG/ado-admin/releases/latest/download/azb_Darwin_arm64.tar.gz | tar xz
+curl -L https://github.com/SOMUCHDOG/azb/releases/latest/download/azb_Darwin_arm64.tar.gz | tar xz
 sudo mv azb /usr/local/bin/
 ```
 
@@ -41,18 +41,18 @@ sudo mv azb /usr/local/bin/
 
 ```bash
 # AMD64
-curl -L https://github.com/SOMUCHDOG/ado-admin/releases/latest/download/azb_Linux_x86_64.tar.gz | tar xz
+curl -L https://github.com/SOMUCHDOG/azb/releases/latest/download/azb_Linux_x86_64.tar.gz | tar xz
 sudo mv azb /usr/local/bin/
 ```
 
 #### Windows
 
-Download the `.zip` file for your architecture from the [Releases page](https://github.com/SOMUCHDOG/ado-admin/releases), extract it, and add to your PATH.
+Download the `.zip` file for your architecture from the [Releases page](https://github.com/SOMUCHDOG/azb/releases), extract it, and add to your PATH.
 
 ### From Source
 
 ```bash
-git clone https://github.com/SOMUCHDOG/ado-admin
+git clone https://github.com/SOMUCHDOG/azb
 cd ado-admin
 go build -o azb
 ```
@@ -225,7 +225,7 @@ Leave blank to keep current value, enter new value to update
 Title [Fix login bug]:
 Description [Users unable to login]: Updated description
 State [Active]: Resolved
-Assigned To [Casey Kawamura]:
+Assigned To [Jane Smith]:
 Tags [bug,urgent]:
 Priority [1]: 2
 
@@ -393,7 +393,7 @@ relations:
 
     - title: Child Task 2
       description: Another child task
-      assignedTo: Casey Kawamura
+      assignedTo: Jane Smith
 ```
 
 **Creating Work Items with Relationships:**
@@ -458,9 +458,9 @@ from WorkItems where [System.AssignedTo] = @me order by [System.ChangedDate] des
 $ azb query run "Assigned to me" --limit 5
 ID       Title                                              Type            State           Assigned To
 ------------------------------------------------------------------------------------------------------------------------
-73807    Fix login bug                                      Bug             Active          Casey Kawamura
-73504    Add new dashboard feature                          User Story      New             Casey Kawamura
-73667    Update documentation                               Task            Active          Casey Kawamura
+73807    Fix login bug                                      Bug             Active          Jane Smith
+73504    Add new dashboard feature                          User Story      New             Jane Smith
+73667    Update documentation                               Task            Active          Jane Smith
 ```
 
 ### Delete Work Item

@@ -245,7 +245,7 @@ gh secret set CODECOV_TOKEN
 The README includes a Go Report Card badge. To activate it:
 
 1. Visit https://goreportcard.com
-2. Enter your repository URL: `github.com/casey/azure-boards-cli`
+2. Enter your repository URL: `github.com/SOMUCHDOG/azb`
 3. Click "Generate Report"
 
 The badge will automatically work once the report is generated.

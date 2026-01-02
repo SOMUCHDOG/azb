@@ -16,8 +16,8 @@ import (
 	"github.com/microsoft/azure-devops-go-api/azuredevops/workitemtracking"
 	"gopkg.in/yaml.v3"
 
-	"github.com/casey/azure-boards-cli/internal/api"
-	"github.com/casey/azure-boards-cli/internal/templates"
+	"github.com/SOMUCHDOG/azb/internal/api"
+	"github.com/SOMUCHDOG/azb/internal/templates"
 )
 
 // WorkItemsTab displays and manages work items

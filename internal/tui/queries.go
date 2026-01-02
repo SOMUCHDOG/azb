@@ -11,7 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/microsoft/azure-devops-go-api/azuredevops/workitemtracking"
 
-	"github.com/casey/azure-boards-cli/internal/api"
+	"github.com/SOMUCHDOG/azb/internal/api"
 )
 
 // QueriesTab displays saved queries in a tree view
