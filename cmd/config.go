@@ -13,13 +13,39 @@ var (
 	configCmd = &cobra.Command{
 		Use:   "config",
 		Short: "Manage configuration",
-		Long:  `View and modify Azure Boards CLI configuration.`,
+		Long: `View and modify Azure Boards CLI configuration.
+
+Available configuration keys:
+  organization         - Azure DevOps organization name
+  project             - Azure DevOps project name
+  default_area_path   - Default area path for work items
+  default_iteration   - Default iteration for work items
+  default_view        - Default view for work items
+
+Examples:
+  # Set your organization
+  azb config set organization my-org
+
+  # Set your project
+  azb config set project my-project
+
+  # Get a configuration value
+  azb config get organization
+
+  # List all configuration
+  azb config list`,
 	}
 
 	configGetCmd = &cobra.Command{
 		Use:   "get <key>",
 		Short: "Get a configuration value",
-		Long:  `Get the value of a configuration key.`,
+		Long: `Get the value of a configuration key.
+
+Available keys: organization, project, default_area_path, default_iteration, default_view
+
+Examples:
+  azb config get organization
+  azb config get project`,
 		Args:  cobra.ExactArgs(1),
 		RunE:  runConfigGet,
 	}
@@ -27,7 +53,14 @@ var (
 	configSetCmd = &cobra.Command{
 		Use:   "set <key> <value>",
 		Short: "Set a configuration value",
-		Long:  `Set the value of a configuration key.`,
+		Long: `Set the value of a configuration key.
+
+Available keys: organization, project, default_area_path, default_iteration, default_view
+
+Examples:
+  azb config set organization my-org
+  azb config set project my-project
+  azb config set default_area_path "MyArea\\MySubArea"`,
 		Args:  cobra.ExactArgs(2),
 		RunE:  runConfigSet,
 	}
@@ -45,6 +78,22 @@ func init() {
 	configCmd.AddCommand(configGetCmd)
 	configCmd.AddCommand(configSetCmd)
 	configCmd.AddCommand(configListCmd)
+
+	// Hide the global org and project flags from config commands as they are misleading
+	// Users should use "azb config set" to configure these values, not flags
+	// Add local flags that shadow the global ones but are hidden
+	configCmd.Flags().String("org", "", "")
+	configCmd.Flags().String("project", "", "")
+	configCmd.Flags().MarkHidden("org")
+	configCmd.Flags().MarkHidden("project")
+
+	// Do the same for each subcommand
+	for _, cmd := range []*cobra.Command{configGetCmd, configSetCmd, configListCmd} {
+		cmd.Flags().String("org", "", "")
+		cmd.Flags().String("project", "", "")
+		cmd.Flags().MarkHidden("org")
+		cmd.Flags().MarkHidden("project")
+	}
 }
 
 func runConfigGet(cmd *cobra.Command, args []string) error {
