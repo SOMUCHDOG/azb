@@ -4,21 +4,29 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/spf13/viper"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
+	"github.com/SOMUCHDOG/azb/internal/api"
+	"github.com/SOMUCHDOG/azb/internal/auth"
+	"github.com/SOMUCHDOG/azb/internal/config"
 	"github.com/SOMUCHDOG/azb/internal/templates"
+	"github.com/SOMUCHDOG/azb/internal/workitemtpl"
 )
 
 var (
 	templateFormatFlag string
+	templateIDFlag     int
 
 	templateCmd = &cobra.Command{
 		Use:   "template",
 		Short: "Manage work item templates",
 		Long:  `List, show, and manage work item templates.`,
+		RunE:  runTemplate,
 	}
 
 	templateListCmd = &cobra.Command{
@@ -59,6 +67,7 @@ func init() {
 	templateCmd.AddCommand(templateShowCmd)
 	templateCmd.AddCommand(templateDeleteCmd)
 	templateCmd.AddCommand(templateSaveCmd)
+	templateCmd.Flags().IntVar(&templateIDFlag, "id", 0, "Download a work item as a template by ID")
 
 	templateShowCmd.Flags().StringVarP(&templateFormatFlag, "format", "f", "yaml", "Output format (yaml, json)")
 
@@ -75,6 +84,83 @@ func init() {
 
 	//nolint:errcheck // Flag requirement error is non-critical at init time
 	templateSaveCmd.MarkFlagRequired("type")
+}
+
+func runTemplate(cmd *cobra.Command, args []string) error {
+	if templateIDFlag > 0 {
+		return runTemplateDownloadByID(templateIDFlag)
+	}
+	return cmd.Help()
+}
+
+func runTemplateDownloadByID(workItemID int) error {
+	token, err := auth.GetToken()
+	if err != nil {
+		return err
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	org := viper.GetString("organization")
+	if org == "" {
+		org = cfg.Organization
+	}
+	if org == "" {
+		return fmt.Errorf("organization not configured. Run 'azb config organization <org>'")
+	}
+
+	project := viper.GetString("project")
+	if project == "" {
+		project = cfg.Project
+	}
+	if project == "" {
+		return fmt.Errorf("project not configured. Run 'azb config project <project>'")
+	}
+
+	client, err := api.NewClient(api.NormalizeOrganizationURL(org), project, token)
+	if err != nil {
+		return fmt.Errorf("failed to create API client: %w", err)
+	}
+
+	workItem, err := client.GetWorkItem(workItemID)
+	if err != nil {
+		return fmt.Errorf("failed to get work item %d: %w", workItemID, err)
+	}
+
+	template := workitemtpl.ConvertToTemplate(client, workItem)
+	yamlData, err := yaml.Marshal(template)
+	if err != nil {
+		return fmt.Errorf("failed to serialize template: %w", err)
+	}
+
+	templatesDir, err := templates.GetTemplatesDir()
+	if err != nil {
+		return fmt.Errorf("failed to get templates directory: %w", err)
+	}
+
+	filename := fmt.Sprintf("workitem-%d-%s.yaml", workItemID, sanitizeTemplateFilename(template.Name))
+	filePath := filepath.Join(templatesDir, filename)
+	if err := os.WriteFile(filePath, yamlData, 0600); err != nil {
+		return fmt.Errorf("failed to save template: %w", err)
+	}
+
+	fmt.Printf("✓ Downloaded work item #%d template to %s\n", workItemID, filePath)
+	return nil
+}
+
+func sanitizeTemplateFilename(s string) string {
+	invalid := []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|"}
+	result := s
+	for _, char := range invalid {
+		result = strings.ReplaceAll(result, char, "-")
+	}
+	if len(result) > 50 {
+		result = result[:50]
+	}
+	return strings.ToLower(strings.TrimSpace(result))
 }
 
 func runTemplateList(cmd *cobra.Command, args []string) error {
