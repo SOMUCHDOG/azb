@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -591,6 +593,7 @@ func (t *WorkItemsTab) GetHelpEntries() []HelpEntry {
 	return []HelpEntry{
 		{Action: "details", Description: "Toggle details view"},
 		{Action: "download", Description: "Download as YAML template"},
+		{Action: "open_browser", Description: "Open work item in browser"},
 		{Action: "edit", Description: "Edit work item in $EDITOR"},
 		{Action: "delete", Description: "Delete work item and children"},
 		{Action: "create", Description: "Create new work item"},
@@ -608,6 +611,46 @@ func (t *WorkItemsTab) handleDownloadAction() tea.Cmd {
 		return downloadWorkItem(t.client, item.workItem)
 	}
 	return nil
+}
+
+func (t *WorkItemsTab) handleOpenBrowserAction() tea.Cmd {
+	selectedItem := t.list.SelectedItem()
+	item, ok := selectedItem.(workItemItem)
+	if !ok || item.workItem.Id == nil {
+		return nil
+	}
+
+	workItemID := *item.workItem.Id
+	workItemURL := fmt.Sprintf("%s/%s/_workitems/edit/%d",
+		strings.TrimRight(t.client.GetOrganizationURL(), "/"),
+		t.client.GetProject(),
+		workItemID,
+	)
+
+	return func() tea.Msg {
+		cmd := browserOpenCommand(workItemURL)
+		if err := cmd.Start(); err != nil {
+			return NotificationMsg{
+				Message: fmt.Sprintf("Failed to open browser: %v", err),
+				IsError: true,
+			}
+		}
+		return NotificationMsg{
+			Message: fmt.Sprintf("Opened work item #%d in browser", workItemID),
+			IsError: false,
+		}
+	}
+}
+
+func browserOpenCommand(url string) *exec.Cmd {
+	switch runtime.GOOS {
+	case "windows":
+		return exec.Command("cmd", "/c", "start", "", url)
+	case "darwin":
+		return exec.Command("open", url)
+	default:
+		return exec.Command("xdg-open", url)
+	}
 }
 
 // downloadWorkItem downloads a work item as a YAML template

@@ -37,6 +37,7 @@ type KeybindConfig struct {
 	WorkItems struct {
 		Details     []string `yaml:"details"`
 		Download    []string `yaml:"download"`
+		OpenBrowser []string `yaml:"open_browser"`
 		Edit        []string `yaml:"edit"`
 		Delete      []string `yaml:"delete"`
 		Create      []string `yaml:"create"`
@@ -146,6 +147,10 @@ func (kc *KeybindController) LoadDefaults() {
 	kc.workitems["download"] = key.NewBinding(
 		key.WithKeys("w"),
 		key.WithHelp("w", "download as template"),
+	)
+	kc.workitems["open_browser"] = key.NewBinding(
+		key.WithKeys("o"),
+		key.WithHelp("o", "open in browser"),
 	)
 	kc.workitems["edit"] = key.NewBinding(
 		key.WithKeys("e"),
@@ -270,6 +275,12 @@ func (kc *KeybindController) buildBindings() {
 			key.WithHelp(kc.config.WorkItems.Download[0], "download as template"),
 		)
 	}
+	if len(kc.config.WorkItems.OpenBrowser) > 0 {
+		kc.workitems["open_browser"] = key.NewBinding(
+			key.WithKeys(kc.config.WorkItems.OpenBrowser...),
+			key.WithHelp(kc.config.WorkItems.OpenBrowser[0], "open in browser"),
+		)
+	}
 	if len(kc.config.WorkItems.Edit) > 0 {
 		kc.workitems["edit"] = key.NewBinding(
 			key.WithKeys(kc.config.WorkItems.Edit...),
@@ -367,6 +378,7 @@ queries:
 work_items:
   details: ["enter"]
   download: ["w"]          # Download work item as YAML template
+  open_browser: ["o"]      # Open work item in Azure DevOps browser
   edit: ["e"]              # Edit work item in $EDITOR
   delete: ["d"]            # Delete work item (with confirmation)
   create: ["n"]            # Create new work item
