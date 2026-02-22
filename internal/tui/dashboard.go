@@ -207,6 +207,11 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						logger.Printf("Adding tags '%s' to work item #%d", value, workItemID)
 						return d, addWorkItemTags(d.client, workItemID, value)
 					}
+				} else if action == "create_work_item" {
+					if createCtx, ok := context.(createWorkItemContext); ok {
+						logger.Printf("Creating new work item type '%s' with title '%s'", createCtx.WorkItemType, value)
+						return d, createWorkItem(d.client, createCtx.WorkItemType, value)
+					}
 				}
 
 				logger.Printf("Input submitted: %s (action: %s)", value, action)
@@ -326,6 +331,14 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if d.keybinds.Matches(msg, "workitems", "add_tags") {
 						logger.Printf("Add tags action triggered")
 						if prompt := workitemsTab.handleAddTagsAction(); prompt != nil {
+							d.inputPrompt = prompt
+						}
+						return d, nil
+					}
+					// Create work item (n key)
+					if d.keybinds.Matches(msg, "workitems", "create") {
+						logger.Printf("Create action triggered")
+						if prompt := workitemsTab.handleCreateAction(); prompt != nil {
 							d.inputPrompt = prompt
 						}
 						return d, nil
