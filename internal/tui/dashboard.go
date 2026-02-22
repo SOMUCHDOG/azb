@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -601,14 +603,7 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Open editor to edit template file
 		logger.Printf("Opening editor for template: %s", msg.FilePath)
 
-		// Get editor from environment
-		editor := os.Getenv("EDITOR")
-		if editor == "" {
-			editor = "vi" // fallback to vi
-		}
-
-		// Create command to open editor
-		c := exec.Command(editor, msg.FilePath)
+		c := resolveEditorCommand(msg.FilePath)
 
 		// Return tea.ExecProcess to suspend TUI and run editor
 		return d, tea.ExecProcess(c, func(err error) tea.Msg {
@@ -628,14 +623,7 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Open editor to edit work item
 		logger.Printf("Opening editor for work item #%d at %s", msg.WorkItemID, msg.FilePath)
 
-		// Get editor from environment
-		editor := os.Getenv("EDITOR")
-		if editor == "" {
-			editor = "vi" // fallback to vi
-		}
-
-		// Create command to open editor
-		c := exec.Command(editor, msg.FilePath)
+		c := resolveEditorCommand(msg.FilePath)
 
 		// Return tea.ExecProcess to suspend TUI and run editor
 		return d, tea.ExecProcess(c, func(err error) tea.Msg {
@@ -731,4 +719,30 @@ func Run(client *api.Client) error {
 	}
 
 	return nil
+}
+
+func resolveEditorCommand(filePath string) *exec.Cmd {
+	for _, envName := range []string{"VISUAL", "EDITOR"} {
+		if envValue := strings.TrimSpace(os.Getenv(envName)); envValue != "" {
+			parts := strings.Fields(envValue)
+			if len(parts) > 0 {
+				return exec.Command(parts[0], append(parts[1:], filePath)...)
+			}
+		}
+	}
+
+	switch runtime.GOOS {
+	case "windows":
+		return exec.Command("notepad", filePath)
+	case "darwin":
+		return exec.Command("open", "-W", "-t", filePath)
+	default:
+		if _, err := exec.LookPath("sensible-editor"); err == nil {
+			return exec.Command("sensible-editor", filePath)
+		}
+		if _, err := exec.LookPath("xdg-open"); err == nil {
+			return exec.Command("xdg-open", filePath)
+		}
+		return exec.Command("vi", filePath)
+	}
 }
