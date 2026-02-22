@@ -18,6 +18,7 @@ import (
 
 	"github.com/SOMUCHDOG/azb/internal/api"
 	"github.com/SOMUCHDOG/azb/internal/templates"
+	"github.com/SOMUCHDOG/azb/internal/workitemtpl"
 )
 
 // WorkItemsTab displays and manages work items
@@ -672,99 +673,7 @@ func downloadWorkItem(client *api.Client, wi workitemtracking.WorkItem) tea.Cmd 
 
 // convertWorkItemToTemplate converts a work item to a template
 func convertWorkItemToTemplate(client *api.Client, wi *workitemtracking.WorkItem) *templates.Template {
-	template := &templates.Template{
-		Name:        getStringField(wi, "System.Title"),
-		Type:        getStringField(wi, "System.WorkItemType"),
-		Description: fmt.Sprintf("Template created from work item #%d", *wi.Id),
-		Fields:      make(map[string]interface{}),
-	}
-
-	// Copy relevant fields
-	relevantFields := []string{
-		"System.Title",
-		"System.Description",
-		"System.State",
-		"System.Tags",
-		"Microsoft.VSTS.Common.Priority",
-		"Microsoft.VSTS.Common.AcceptanceCriteria",
-		"System.AreaPath",
-		"System.IterationPath",
-		"Custom.ApplicationName",
-	}
-
-	if wi.Fields != nil {
-		for _, fieldName := range relevantFields {
-			if value, ok := (*wi.Fields)[fieldName]; ok {
-				template.Fields[fieldName] = value
-			}
-		}
-
-		// Handle System.AssignedTo specially - extract email for uniqueness
-		assignedTo := getEmailField(wi, "System.AssignedTo")
-		if assignedTo != "" {
-			template.Fields["System.AssignedTo"] = assignedTo
-		}
-	}
-
-	// Handle relationships (children and parent)
-	if wi.Relations != nil {
-		for _, rel := range *wi.Relations {
-			if rel.Rel != nil && rel.Url != nil {
-				relType := *rel.Rel
-
-				// Check for parent relationship
-				if relType == "System.LinkTypes.Hierarchy-Reverse" {
-					parentID := extractWorkItemIDFromURL(*rel.Url)
-					if parentID > 0 {
-						if template.Relations == nil {
-							template.Relations = &templates.Relations{}
-						}
-						template.Relations.ParentID = parentID
-					}
-				}
-
-				// Check for child relationship
-				if relType == "System.LinkTypes.Hierarchy-Forward" {
-					// Extract child work item ID from relationship URL
-					childID := extractWorkItemIDFromURL(*rel.Url)
-					if childID > 0 {
-						if template.Relations == nil {
-							template.Relations = &templates.Relations{}
-						}
-
-						// Fetch child work item details to get title, type, description, and assignedTo
-						childTitle := fmt.Sprintf("Child Work Item #%d", childID)
-						childType := "Task"
-						childDescription := ""
-						childAssignedTo := ""
-						if client != nil {
-							childWI, err := client.GetWorkItem(childID)
-							if err == nil && childWI != nil {
-								childTitle = getStringField(childWI, "System.Title")
-								childDescription = getStringField(childWI, "System.Description")
-								childAssignedTo = getEmailField(childWI, "System.AssignedTo")
-								childWorkItemType := getStringField(childWI, "System.WorkItemType")
-								if childWorkItemType != "" {
-									childType = childWorkItemType
-								}
-							}
-						}
-
-						// Create child entry with actual title, type, description, and assignedTo
-						child := templates.ChildWorkItem{
-							Title:       childTitle,
-							Type:        childType,
-							Description: childDescription,
-							AssignedTo:  childAssignedTo,
-						}
-						template.Relations.Children = append(template.Relations.Children, child)
-					}
-				}
-			}
-		}
-	}
-
-	return template
+	return workitemtpl.ConvertToTemplate(client, wi)
 }
 
 // sanitizeFilename removes invalid filename characters
