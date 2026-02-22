@@ -36,8 +36,6 @@ jobs:
       - name: Install semantic-release
         run: |
           npm install -g semantic-release@23 \
-            @semantic-release/git@10 \
-            @semantic-release/changelog@6 \
             conventional-changelog-conventionalcommits@7
 
       - name: Run semantic-release
