@@ -296,6 +296,11 @@ func (d *Dashboard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						logger.Printf("Download action triggered")
 						return d, workitemsTab.handleDownloadAction()
 					}
+					// Open work item in browser (o key)
+					if d.keybinds.Matches(msg, "workitems", "open_browser") {
+						logger.Printf("Open browser action triggered")
+						return d, workitemsTab.handleOpenBrowserAction()
+					}
 					// Edit work item (e key)
 					if d.keybinds.Matches(msg, "workitems", "edit") {
 						logger.Printf("Edit action triggered")
