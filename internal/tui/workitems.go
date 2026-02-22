@@ -38,6 +38,10 @@ type WorkItemsTab struct {
 	err              error
 }
 
+type createWorkItemContext struct {
+	WorkItemType string
+}
+
 // relationshipInfo stores formatted relationship data for a work item
 type relationshipInfo struct {
 	//nolint:unused // Reserved for future feature: display parent work item
@@ -1209,6 +1213,55 @@ func (t *WorkItemsTab) handleAddTagsAction() *InputPrompt {
 		return prompt
 	}
 	return nil
+}
+
+// handleCreateAction shows an input prompt for creating a new work item.
+func (t *WorkItemsTab) handleCreateAction() *InputPrompt {
+	workItemType := "User Story"
+
+	selectedItem := t.list.SelectedItem()
+	if item, ok := selectedItem.(workItemItem); ok {
+		if detectedType := getStringField(&item.workItem, "System.WorkItemType"); detectedType != "" {
+			workItemType = detectedType
+		}
+	}
+
+	prompt := NewInputPrompt()
+	prompt.Show(
+		"Create Work Item",
+		fmt.Sprintf("Enter title for new %s", workItemType),
+		"create_work_item",
+		createWorkItemContext{WorkItemType: workItemType},
+	)
+	logger.Printf("Showing create input prompt for work item type '%s'", workItemType)
+	return prompt
+}
+
+func createWorkItem(client *api.Client, workItemType, title string) tea.Cmd {
+	return func() tea.Msg {
+		logger.Printf("Creating new %s with title '%s'", workItemType, title)
+
+		fields := map[string]interface{}{
+			"System.Title": title,
+		}
+
+		workItem, err := client.CreateWorkItem(workItemType, fields, 0)
+		if err != nil {
+			logger.Printf("Failed to create work item: %v", err)
+			return WorkItemCreatedMsg{
+				WorkItem: nil,
+				Error:    err,
+				Message:  "",
+			}
+		}
+
+		logger.Printf("Successfully created work item #%d", *workItem.Id)
+		return WorkItemCreatedMsg{
+			WorkItem: workItem,
+			Error:    nil,
+			Message:  fmt.Sprintf("Created %s #%d", workItemType, *workItem.Id),
+		}
+	}
 }
 
 // changeWorkItemState changes the state of a work item
