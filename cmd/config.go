@@ -45,6 +45,31 @@ func init() {
 	configCmd.AddCommand(configGetCmd)
 	configCmd.AddCommand(configSetCmd)
 	configCmd.AddCommand(configListCmd)
+	configCmd.AddCommand(newConfigKeyCmd("organization", "Azure DevOps organization"))
+	configCmd.AddCommand(newConfigKeyCmd("project", "Azure DevOps project"))
+	configCmd.AddCommand(newConfigKeyCmd("default_area_path", "Default area path"))
+	configCmd.AddCommand(newConfigKeyCmd("default_iteration", "Default iteration path"))
+	configCmd.AddCommand(newConfigKeyCmd("default_view", "Default dashboard view"))
+}
+
+func newConfigKeyCmd(key, description string) *cobra.Command {
+	return &cobra.Command{
+		Use:   fmt.Sprintf("%s [value]", key),
+		Short: fmt.Sprintf("Get or set %s", description),
+		Long: fmt.Sprintf(
+			"Get or set %s.\n\nExamples:\n  azb config %s\n  azb config %s <value>",
+			description,
+			key,
+			key,
+		),
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return runConfigGet(cmd, []string{key})
+			}
+			return runConfigSet(cmd, []string{key, args[0]})
+		},
+	}
 }
 
 func runConfigGet(cmd *cobra.Command, args []string) error {
