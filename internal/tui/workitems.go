@@ -175,8 +175,9 @@ func (t *WorkItemsTab) Update(msg tea.Msg) (Tab, tea.Cmd) {
 			if t.showDetails && len(t.list.Items()) > 0 {
 				selectedItem := t.list.SelectedItem()
 				if item, ok := selectedItem.(workItemItem); ok {
-					t.selectedItem = &item.workItem
-					t.viewport.SetContent(t.formatWorkItemDetails(item.workItem))
+					detailItem := t.getWorkItemForDetails(item.workItem)
+					t.selectedItem = detailItem
+					t.viewport.SetContent(t.formatWorkItemDetails(*detailItem))
 				}
 			}
 			t.updateSizes()
@@ -218,8 +219,9 @@ func (t *WorkItemsTab) Update(msg tea.Msg) (Tab, tea.Cmd) {
 			currentID := item.ID
 			// Only update if selection actually changed
 			if currentID != previousID {
-				t.selectedItem = &item.workItem
-				t.viewport.SetContent(t.formatWorkItemDetails(item.workItem))
+				detailItem := t.getWorkItemForDetails(item.workItem)
+				t.selectedItem = detailItem
+				t.viewport.SetContent(t.formatWorkItemDetails(*detailItem))
 				t.viewport.GotoTop() // Reset scroll position for new item
 			}
 		}
@@ -299,6 +301,27 @@ func (t *WorkItemsTab) removeWorkItem(id int) {
 			break
 		}
 	}
+}
+
+// getWorkItemForDetails ensures detail view has complete relationship data.
+func (t *WorkItemsTab) getWorkItemForDetails(wi workitemtracking.WorkItem) *workitemtracking.WorkItem {
+	if wi.Id == nil {
+		return &wi
+	}
+
+	id := *wi.Id
+	if cached, ok := t.workItemCache[id]; ok && cached != nil && cached.Relations != nil {
+		return cached
+	}
+
+	fullWI, err := t.client.GetWorkItem(id)
+	if err != nil || fullWI == nil {
+		logger.Printf("Failed to fetch full details for work item #%d: %v", id, err)
+		return &wi
+	}
+
+	t.workItemCache[id] = fullWI
+	return fullWI
 }
 
 // fetchWorkItems loads work items from the API
